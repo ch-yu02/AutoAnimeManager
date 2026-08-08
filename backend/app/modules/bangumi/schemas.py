@@ -27,6 +27,23 @@ def parse_datetime(value: Any) -> datetime | None:
         return None
 
 
+def _subject_aliases(data: dict[str, Any]) -> tuple[str, ...]:
+    aliases: list[str] = []
+    alias_keys = {"alias", "aliases", "别名", "別名", "英文名", "日文名", "中文名", "昵称", "暱稱"}
+    for item in data.get("infobox", []):
+        if not isinstance(item, dict) or _text(item.get("key")).casefold() not in alias_keys:
+            continue
+        value = item.get("value")
+        values = value if isinstance(value, list) else [value]
+        for candidate in values:
+            if isinstance(candidate, dict):
+                candidate = candidate.get("v", candidate.get("value"))
+            text = _text(candidate).strip()
+            if text:
+                aliases.append(text)
+    return tuple(dict.fromkeys(aliases))
+
+
 @dataclass(frozen=True)
 class BangumiCollection:
     subject_id: int
@@ -63,6 +80,7 @@ class BangumiSubject:
     air_status: str
     total_main_episodes: int | None
     platform: str = ""
+    aliases: tuple[str, ...] = ()
 
     @classmethod
     def from_api(cls, data: dict[str, Any]) -> "BangumiSubject":
@@ -82,6 +100,7 @@ class BangumiSubject:
             air_status=_text(data.get("air_status")),
             total_main_episodes=eps if isinstance(eps, int) else None,
             platform=_text(data.get("platform")),
+            aliases=_subject_aliases(data),
         )
 
 

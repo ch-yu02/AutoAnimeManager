@@ -3,10 +3,11 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
 from backend.app.database.models.episode import Episode
+from backend.app.database.models.media import EpisodeFile, MediaFile
 from backend.app.database.models.subject import Subject, SubjectRelation
 from backend.app.database.models.sync import SyncRun
 from backend.app.database.session import session_scope
@@ -64,6 +65,8 @@ class EpisodeView(BaseModel):
     bangumi_watch_status: str | None
     watched: bool
     ignored: bool
+    local_status: str
+    media_files: list[dict[str, object]] = Field(default_factory=list)
     last_synced_at: datetime | None
 
 
@@ -161,4 +164,24 @@ async def list_episodes(subject_id: int) -> list[EpisodeView]:
                 .order_by(Episode.episode_type != "MAIN", Episode.sort_number, Episode.id)
             )
         )
-        return [EpisodeView.model_validate(episode) for episode in episodes]
+        result = []
+        for episode in episodes:
+            files = session.execute(
+                select(EpisodeFile, MediaFile)
+                .join(MediaFile, MediaFile.id == EpisodeFile.media_file_id)
+                .where(EpisodeFile.episode_id == episode.id)
+                .order_by(EpisodeFile.is_primary.desc(), MediaFile.path)
+            )
+            result.append(
+                EpisodeView(
+                    **EpisodeView.model_validate(episode).model_dump(exclude={"media_files"}),
+                    media_files=[
+                        {
+                            "id": media.id, "path": media.path, "exists": media.exists,
+                            "primary": mapping.is_primary, "locked": mapping.manually_locked,
+                        }
+                        for mapping, media in files
+                    ],
+                )
+            )
+        return result

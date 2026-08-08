@@ -10,6 +10,7 @@ const activeKey = computed(() => String(route.name ?? 'status'))
 const menuOptions = [
   { label: '系统状态', key: 'status' },
   { label: '我的条目', key: 'subjects' },
+  { label: '媒体库', key: 'library' },
   { label: '设置', key: 'settings' },
 ]
 </script>

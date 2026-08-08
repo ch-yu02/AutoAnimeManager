@@ -15,6 +15,7 @@ class Subject(Base):
     bangumi_subject_id: Mapped[int] = mapped_column(Integer, unique=True, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     name_cn: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    aliases: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
     url: Mapped[str] = mapped_column(String(1000), nullable=False, default="")
     image_url: Mapped[str] = mapped_column(String(1000), nullable=False, default="")

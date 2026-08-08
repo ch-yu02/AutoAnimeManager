@@ -17,6 +17,7 @@ const episodeColumns = [
   { title: '名称', key: 'name_cn', render: (row: EpisodeView) => row.name_cn || row.name || '未命名' },
   { title: '放送日期', key: 'air_date', render: (row: EpisodeView) => row.air_date || '-' },
   { title: 'Bangumi 状态', key: 'bangumi_watch_status', render: (row: EpisodeView) => row.bangumi_watch_status || '未记录' },
+  { title: '本地状态', key: 'local_status', render: (row: EpisodeView) => row.local_status },
 ]
 const relationText = computed(() => subject.value?.relations.map((relation) => `${relation.relation_type} · ${relation.name_cn || relation.name}`).join('、') || '无')
 

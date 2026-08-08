@@ -26,9 +26,16 @@ player:
 
 storage:
   download_path: data/downloads
+  # 可配置多个递归扫描根目录；未设置时兼容使用 library_path。
   library_path: data/library
+  library_roots:
+    - data/library
   quarantine_path: data/quarantine
+  video_extensions: [.mkv, .mp4, .avi, .mov, .m4v, .webm, .ts]
+  ffprobe_path: ffprobe
+  ffprobe_enabled: true
+  partial_hash_bytes: 1048576
 
-# 阶段 1 不注册自动同步任务；当前仅支持手动触发 Bangumi 同步。
+# 当前仅支持手动触发 Bangumi 同步和媒体库扫描。
 scheduler:
   enabled: false

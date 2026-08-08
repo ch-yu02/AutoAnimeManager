@@ -55,7 +55,30 @@ class PlayerConfig(BaseModel):
 class StorageConfig(BaseModel):
     download_path: Path = Path("data/downloads")
     library_path: Path = Path("data/library")
+    library_roots: list[Path] = Field(default_factory=list)
     quarantine_path: Path = Path("data/quarantine")
+    video_extensions: list[str] = Field(
+        default_factory=lambda: [".mkv", ".mp4", ".avi", ".mov", ".m4v", ".webm", ".ts"]
+    )
+    ffprobe_path: str = "ffprobe"
+    ffprobe_enabled: bool = True
+    partial_hash_bytes: int = Field(default=1024 * 1024, ge=64 * 1024, le=16 * 1024 * 1024)
+
+    @field_validator("video_extensions")
+    @classmethod
+    def normalize_video_extensions(cls, values: list[str]) -> list[str]:
+        normalized = []
+        for value in values:
+            extension = value.strip().lower()
+            if not extension:
+                continue
+            normalized.append(extension if extension.startswith(".") else f".{extension}")
+        if not normalized:
+            raise ValueError("storage.video_extensions 不能为空")
+        return list(dict.fromkeys(normalized))
+
+    def effective_library_roots(self) -> list[Path]:
+        return self.library_roots or [self.library_path]
 
 
 class SchedulerConfig(BaseModel):
@@ -127,8 +150,8 @@ def ensure_runtime_directories(settings: AppSettings) -> None:
         Path("data/logs"),
         Path("data/backups"),
         settings.storage.download_path,
-        settings.storage.library_path,
         settings.storage.quarantine_path,
+        *settings.storage.effective_library_roots(),
     ]
     for path in paths:
         path.mkdir(parents=True, exist_ok=True)

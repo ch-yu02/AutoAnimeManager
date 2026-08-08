@@ -26,6 +26,7 @@ export interface BangumiSettings {
 
 export interface PublicSettings {
   bangumi: BangumiSettings
+  storage?: { library_roots?: string[]; library_path?: string }
   [key: string]: unknown
 }
 
@@ -86,7 +87,55 @@ export interface EpisodeView {
   bangumi_watch_status: string | null
   watched: boolean
   ignored: boolean
+  local_status: string
+  media_files: Array<{ id: number; path: string; exists: boolean; primary: boolean; locked: boolean }>
   last_synced_at: string | null
+}
+
+export interface MediaFileView {
+  id: number
+  path: string
+  filename: string
+  file_size: number
+  partial_hash: string | null
+  full_hash: string | null
+  hardlink_paths: string[]
+  duration_seconds: number | null
+  video_codec: string | null
+  resolution: string | null
+  exists: boolean
+  ignored: boolean
+  review_reason: string | null
+  parse_result: Record<string, unknown>
+  subject: { id: number; name: string } | null
+  subject_mapping_source: string | null
+  subject_confidence: number | null
+  subject_reasons: string[]
+  locked: boolean
+  episodes: Array<{ id: number; display_number: string; type: string; name: string; source: string; confidence: number; primary: boolean; locked: boolean; reasons: string[] }>
+}
+
+export interface ReviewQueue {
+  needs_review: MediaFileView[]
+  automatic: MediaFileView[]
+  manually_linked: MediaFileView[]
+  duplicates: MediaFileView[]
+  locked: MediaFileView[]
+  ignored: MediaFileView[]
+  missing: MediaFileView[]
+}
+
+export interface LibraryScanStatus {
+  task_id: string | null
+  status: string
+  discovered_count?: number
+  added_count?: number
+  changed_count?: number
+  moved_count?: number
+  missing_count?: number
+  matched_count?: number
+  review_count?: number
+  error_summary?: string | null
 }
 
 export interface SubjectDetail extends SubjectListItem {
@@ -113,7 +162,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   status: () => request<SystemStatus>('/status'),
   settings: () => request<Record<string, unknown>>('/settings'),
-  updateSettings: (payload: { bangumi_username?: string; bangumi_access_token?: string }) =>
+  updateSettings: (payload: { bangumi_username?: string; bangumi_access_token?: string; library_roots?: string[] }) =>
     request<PublicSettings>('/settings', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
     }),
@@ -124,4 +173,13 @@ export const api = {
   subjects: (collectionType?: string) => request<SubjectListItem[]>(`/subjects${collectionType ? `?collection_type=${encodeURIComponent(collectionType)}` : ''}`),
   subject: (id: number) => request<SubjectDetail>(`/subjects/${id}`),
   episodes: (id: number) => request<EpisodeView[]>(`/subjects/${id}/episodes`),
+  reviewQueue: () => request<ReviewQueue>('/library/review'),
+  startLibraryScan: () => request<{ task_id: string; status: string; reused: boolean }>('/library/scan', { method: 'POST' }),
+  libraryScanStatus: (taskId?: string) => request<LibraryScanStatus>(`/library/scan/status${taskId ? `?task_id=${encodeURIComponent(taskId)}` : ''}`),
+  matchFile: (fileId: number, payload: { subject_id: number; episode_ids: number[]; primary: boolean; lock: boolean; write_manifest: boolean }) =>
+    request<MediaFileView>(`/library/files/${fileId}/match`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }),
+  unlinkFile: (fileId: number) => request<MediaFileView>(`/library/files/${fileId}/match`, { method: 'DELETE' }),
+  ignoreFile: (fileId: number, ignored: boolean) => request<MediaFileView>(`/library/files/${fileId}/ignore`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ignored }) }),
+  reparseFile: (fileId: number) => request<{ task_id: string; status: string }>(`/library/files/${fileId}/reparse`, { method: 'POST' }),
+  fullHashFile: (fileId: number) => request<MediaFileView>(`/library/files/${fileId}/full-hash`, { method: 'POST' }),
 }

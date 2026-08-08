@@ -40,10 +40,18 @@ body { margin: 0; min-width: 320px; background: #101419; }
 .subject-card-content h2 { margin: 0; font-size: 18px; }
 .detail-grid { display: grid; grid-template-columns: minmax(0, 1fr); }
 .button-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.library-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.match-controls { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(280px, 2fr) auto auto; gap: 12px; align-items: center; }
+.review-list { display: grid; gap: 12px; }
+.review-row { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+.review-info { min-width: 0; display: grid; gap: 6px; }
+.review-info .muted { overflow-wrap: anywhere; }
 .sync-message { margin-bottom: 0; color: #63e2b7; }
 .muted { color: #8b949e; }
 .error { color: #e88080; }
 @media (max-width: 640px) {
   .topbar { height: auto; padding: 18px; align-items: flex-start; flex-direction: column; gap: 12px; }
   .n-layout-content { --n-content-style: 20px !important; }
+  .library-heading, .review-row { flex-direction: column; }
+  .match-controls { grid-template-columns: 1fr; }
 }

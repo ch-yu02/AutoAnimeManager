@@ -8,7 +8,7 @@ from backend.app.modules.bangumi.errors import (
     BangumiRateLimitError,
     BangumiTemporaryError,
 )
-from backend.app.modules.bangumi.schemas import BangumiEpisode
+from backend.app.modules.bangumi.schemas import BangumiEpisode, BangumiSubject
 
 
 @pytest.fixture
@@ -23,6 +23,19 @@ def anyio_backend() -> str:
 def test_episode_types_are_normalized(raw_type: int, expected: str) -> None:
     episode = BangumiEpisode.from_api({"id": 1, "type": raw_type, "sort": 1})
     assert episode.episode_type == expected
+
+
+def test_subject_aliases_are_read_from_infobox() -> None:
+    subject = BangumiSubject.from_api({
+        "id": 1,
+        "name": "作品",
+        "infobox": [
+            {"key": "英文名", "value": "Example Anime"},
+            {"key": "别名", "value": [{"v": "Example Romanized"}]},
+        ],
+    })
+
+    assert subject.aliases == ("Example Anime", "Example Romanized")
 
 
 @pytest.mark.anyio

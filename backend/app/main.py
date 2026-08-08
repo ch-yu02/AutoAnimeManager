@@ -10,10 +10,13 @@ from backend.app.api.health import router as health_router
 from backend.app.api.bangumi import router as bangumi_router
 from backend.app.api.settings import router as settings_router
 from backend.app.api.subjects import router as subjects_router
+from backend.app.api.library import router as library_router
 from backend.app.config import ensure_runtime_directories, get_settings
 from backend.app.logging import configure_logging
 from backend.app.modules.bangumi.sync_service import BangumiSyncService
 from backend.app.modules.scheduler import SchedulerSkeleton
+from backend.app.modules.library.scanner import LibraryScanner
+from backend.app.modules.library.service import LibraryScanService
 
 
 @asynccontextmanager
@@ -26,6 +29,9 @@ async def lifespan(app: FastAPI):
     app.state.scheduler = scheduler
     app.state.bangumi_sync_service = BangumiSyncService(
         settings_provider=lambda: get_settings().bangumi
+    )
+    app.state.library_scan_service = LibraryScanService(
+        LibraryScanner(settings_provider=get_settings)
     )
     yield
     scheduler.stop()
@@ -48,6 +54,7 @@ def create_app() -> FastAPI:
     app.include_router(settings_router, prefix="/api")
     app.include_router(bangumi_router, prefix="/api")
     app.include_router(subjects_router, prefix="/api")
+    app.include_router(library_router, prefix="/api")
 
     @app.get("/", include_in_schema=False)
     async def root() -> dict[str, str]:

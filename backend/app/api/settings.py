@@ -25,6 +25,7 @@ class ConnectionTestResult(BaseModel):
 class SettingsPatch(BaseModel):
     bangumi_username: str | None = Field(default=None, min_length=1)
     bangumi_access_token: str | None = Field(default=None, min_length=1)
+    library_roots: list[str] | None = None
 
 
 @router.get("")
@@ -56,6 +57,20 @@ async def update_settings(payload: SettingsPatch) -> dict[str, object]:
         bangumi["username"] = payload.bangumi_username
     if payload.bangumi_access_token is not None:
         bangumi["access_token"] = payload.bangumi_access_token
+    if payload.library_roots is not None:
+        roots = [value.strip() for value in payload.library_roots if value.strip()]
+        if not roots:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"code": "invalid_library_roots", "message": "媒体库目录不能为空"},
+            )
+        storage = raw.setdefault("storage", {})
+        if not isinstance(storage, dict):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"code": "invalid_config", "message": "storage 配置必须是对象"},
+            )
+        storage["library_roots"] = roots
     config_path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path: Path | None = None
     try:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from dataclasses import dataclass
@@ -173,6 +174,7 @@ class BangumiSyncService:
                 session.flush()
             subject.name = subject_data.name
             subject.name_cn = subject_data.name_cn
+            subject.aliases = json.dumps(subject_data.aliases, ensure_ascii=False)
             subject.summary = subject_data.summary
             subject.url = subject_data.url
             subject.image_url = subject_data.image_url

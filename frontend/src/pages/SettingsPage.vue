@@ -11,6 +11,7 @@ const testing = ref('')
 const results = ref<Record<string, ConnectionTestResult>>({})
 const username = ref('')
 const token = ref('')
+const libraryRoots = ref('')
 const saving = ref(false)
 const sync = ref<SyncStatus | null>(null)
 let syncTimer: ReturnType<typeof setInterval> | undefined
@@ -22,6 +23,8 @@ async function load() {
     settings.value = await api.settings()
     const bangumi = settings.value.bangumi as { username?: string } | undefined
     username.value = bangumi?.username || ''
+    const storage = settings.value.storage as { library_roots?: string[]; library_path?: string } | undefined
+    libraryRoots.value = (storage?.library_roots?.length ? storage.library_roots : [storage?.library_path || 'data/library']).join('\n')
   }
   catch (reason) { error.value = reason instanceof Error ? reason.message : '读取配置失败' }
   finally { loading.value = false }
@@ -30,7 +33,10 @@ async function load() {
 async function save() {
   saving.value = true
   try {
-    const payload: { bangumi_username?: string; bangumi_access_token?: string } = { bangumi_username: username.value }
+    const payload: { bangumi_username?: string; bangumi_access_token?: string; library_roots?: string[] } = {
+      bangumi_username: username.value,
+      library_roots: libraryRoots.value.split('\n').map((value) => value.trim()).filter(Boolean),
+    }
     if (token.value) payload.bangumi_access_token = token.value
     settings.value = await api.updateSettings(payload)
     token.value = ''
@@ -105,6 +111,14 @@ onUnmounted(stopPolling)
         </div>
         <p v-if="results.bangumi" class="muted">{{ results.bangumi.detail }}</p>
         <p v-if="sync" class="sync-message">同步状态：{{ sync.status }}，成功 {{ sync.succeeded_count }}，失败 {{ sync.failed_count }}{{ sync.error_summary ? `；${sync.error_summary}` : '' }}</p>
+      </NCard>
+      <NCard title="媒体库" style="margin-bottom: 20px">
+        <NForm label-placement="top">
+          <NFormItem label="扫描根目录（每行一个）">
+            <NInput v-model:value="libraryRoots" type="textarea" :autosize="{ minRows: 2, maxRows: 6 }" />
+          </NFormItem>
+        </NForm>
+        <NButton :loading="saving" type="primary" @click="save">保存配置</NButton>
       </NCard>
       <div class="settings-grid">
         <NCard v-for="service in ['qbittorrent', 'mpv']" :key="service" :title="service">
