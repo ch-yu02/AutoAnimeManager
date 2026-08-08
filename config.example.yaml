@@ -1,0 +1,31 @@
+app:
+  host: 127.0.0.1
+  port: 8765
+  log_level: INFO
+  timezone: Asia/Shanghai
+
+database:
+  url: sqlite:///./data/database/autoanime.db
+
+bangumi:
+  base_url: https://api.bgm.tv
+  username: ""
+  access_token: ""
+
+qbittorrent:
+  base_url: http://127.0.0.1:8080
+  username: ""
+  password: ""
+  category: autoanime
+
+player:
+  mpv_path: mpv
+
+storage:
+  download_path: data/downloads
+  library_path: data/library
+  quarantine_path: data/quarantine
+
+# 阶段 0 不注册自动任务；后续阶段启用前仍需逐项配置。
+scheduler:
+  enabled: false
