@@ -29,10 +29,6 @@ def _configuration_status() -> ComponentStatus:
         missing.append("bangumi.username")
     if not settings.bangumi.access_token.get_secret_value():
         missing.append("bangumi.access_token")
-    if not settings.qbittorrent.username:
-        missing.append("qbittorrent.username")
-    if not settings.qbittorrent.password.get_secret_value():
-        missing.append("qbittorrent.password")
     if missing:
         return ComponentStatus(
             status="incomplete",

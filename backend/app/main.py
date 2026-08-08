@@ -7,9 +7,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app import __version__
 from backend.app.api.health import router as health_router
+from backend.app.api.bangumi import router as bangumi_router
 from backend.app.api.settings import router as settings_router
+from backend.app.api.subjects import router as subjects_router
 from backend.app.config import ensure_runtime_directories, get_settings
 from backend.app.logging import configure_logging
+from backend.app.modules.bangumi.sync_service import BangumiSyncService
 from backend.app.modules.scheduler import SchedulerSkeleton
 
 
@@ -21,6 +24,9 @@ async def lifespan(app: FastAPI):
     scheduler = SchedulerSkeleton(enabled=settings.scheduler.enabled)
     scheduler.start()
     app.state.scheduler = scheduler
+    app.state.bangumi_sync_service = BangumiSyncService(
+        settings_provider=lambda: get_settings().bangumi
+    )
     yield
     scheduler.stop()
 
@@ -40,6 +46,8 @@ def create_app() -> FastAPI:
     )
     app.include_router(health_router, prefix="/api")
     app.include_router(settings_router, prefix="/api")
+    app.include_router(bangumi_router, prefix="/api")
+    app.include_router(subjects_router, prefix="/api")
 
     @app.get("/", include_in_schema=False)
     async def root() -> dict[str, str]:

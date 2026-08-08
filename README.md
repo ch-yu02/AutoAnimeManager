@@ -1,13 +1,13 @@
 # AutoAnime
 
-单用户、本地运行的 Bangumi 自动追番与媒体管理器。当前完成阶段 0：项目骨架、配置、SQLite/Alembic、日志、调度器骨架、系统状态页及连接测试占位接口；尚未实现 Bangumi 同步、文件扫描、下载和播放。
+单用户、本地运行的 Bangumi 自动追番与媒体管理器。当前完成阶段 1：Bangumi 元数据/收藏同步、SQLite 持久化、条目列表与详情展示；文件扫描、下载和播放将在后续阶段实现。
 
 ## 环境要求
 
 - Python 3.12+
 - Node.js 22+
 - npm 10+
-- 后续阶段需要独立安装 qBittorrent 和 MPV；阶段 0 不要求它们可用
+- 后续阶段需要独立安装 qBittorrent 和 MPV；阶段 1 不要求它们可用
 
 ## 首次启动
 
@@ -38,7 +38,7 @@ export AUTOANIME_APP__PORT=9000
 export AUTOANIME_BANGUMI__ACCESS_TOKEN=your-token
 ```
 
-未提供外部组件凭证时后端仍可启动，但 `/api/health` 和状态页会明确列出缺少项，自动任务保持关闭。不要提交 `config.yaml` 或 `.env`。
+未提供外部组件凭证时后端仍可启动，但 `/api/health` 和状态页会明确列出缺少项。阶段 1 只支持手动同步；不要提交 `config.yaml` 或 `.env`。
 
 ## 常用命令
 
@@ -66,15 +66,21 @@ python -m scripts.backup
 
 运行时数据写入 `data/`。日志采用 JSON Lines 格式并滚动保留，API 返回的 Bangumi Token 和 qBittorrent 密码会被脱敏。
 
-## 阶段 0 API
+## 阶段 1 API
 
 ```text
 GET  /api/health
 GET  /api/status
 GET  /api/settings
+PATCH /api/settings
 POST /api/settings/test/bangumi
 POST /api/settings/test/qbittorrent
 POST /api/settings/test/mpv
+POST /api/bangumi/sync
+GET  /api/bangumi/sync/status
+GET  /api/subjects
+GET  /api/subjects/{id}
+GET  /api/subjects/{id}/episodes
 ```
 
-Bangumi 与 qBittorrent 测试当前只检查配置完整性并明确返回 `not_implemented`；真实网络连接分别在阶段 1 和下载阶段实现。MPV 测试会检查配置的可执行文件。
+`POST /api/bangumi/sync` 会快速返回任务标识；通过状态接口查看成功、部分失败或失败及脱敏错误摘要。同步仅保存符合范围的 Bangumi 收藏，使用 Bangumi ID 幂等更新 Subject、Episode 和关系，外部 API 失败不会清空已有数据。Bangumi Token 和 qBittorrent 密码不会出现在 API 响应或正常错误摘要中。

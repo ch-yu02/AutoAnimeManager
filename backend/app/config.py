@@ -28,7 +28,7 @@ class DatabaseConfig(BaseModel):
     @classmethod
     def require_sqlite(cls, value: str) -> str:
         if not value.startswith("sqlite:///"):
-            raise ValueError("阶段 0 仅支持 sqlite:/// 数据库 URL")
+            raise ValueError("当前仅支持 sqlite:/// 数据库 URL")
         return value
 
 
@@ -36,6 +36,9 @@ class BangumiConfig(BaseModel):
     base_url: str = "https://api.bgm.tv"
     username: str = ""
     access_token: SecretStr = SecretStr("")
+    timeout: float = Field(default=10.0, gt=0, le=120)
+    page_size: int = Field(default=50, ge=1, le=100)
+    cache_ttl_seconds: float = Field(default=30.0, ge=0, le=300)
 
 
 class QBittorrentConfig(BaseModel):

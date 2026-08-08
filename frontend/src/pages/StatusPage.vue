@@ -37,7 +37,7 @@ onMounted(system.refresh)
         </NCard>
         <NCard title="调度器">
           <div class="status-row">
-            <span>阶段 0 不运行自动任务</span>
+            <span>阶段 1 仅运行手动同步</span>
             <NTag>{{ system.status.scheduler.jobs }} jobs</NTag>
           </div>
         </NCard>

@@ -11,6 +11,9 @@ bangumi:
   base_url: https://api.bgm.tv
   username: ""
   access_token: ""
+  timeout: 10
+  page_size: 50
+  cache_ttl_seconds: 30
 
 qbittorrent:
   base_url: http://127.0.0.1:8080
@@ -26,6 +29,6 @@ storage:
   library_path: data/library
   quarantine_path: data/quarantine
 
-# 阶段 0 不注册自动任务；后续阶段启用前仍需逐项配置。
+# 阶段 1 不注册自动同步任务；当前仅支持手动触发 Bangumi 同步。
 scheduler:
   enabled: false
