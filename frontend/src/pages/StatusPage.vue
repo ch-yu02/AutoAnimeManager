@@ -1,12 +1,30 @@
 <script setup lang="ts">
-import { NButton, NCard, NSpin, NTag } from 'naive-ui'
-import { onMounted } from 'vue'
+import { NButton, NCard, NProgress, NSpin, NTag } from 'naive-ui'
+import { onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 
+import { api, type ContinueWatching } from '../api/client'
 import { useSystemStore } from '../stores/system'
 
 const system = useSystemStore()
+const router = useRouter()
 const tagType = (status: string) => status === 'ok' ? 'success' : status === 'error' ? 'error' : 'warning'
-onMounted(system.refresh)
+const watching = ref<ContinueWatching[]>([])
+const playbackError = ref('')
+
+async function loadPlayback() {
+  try {
+    watching.value = await api.continueWatching()
+    playbackError.value = ''
+  }
+  catch (reason) { playbackError.value = reason instanceof Error ? reason.message : '读取播放状态失败' }
+}
+
+function play(item: ContinueWatching) {
+  router.push({ name: 'subject-detail', params: { id: item.episode.subject_id }, query: { play: item.episode_id } })
+}
+
+onMounted(() => { system.refresh(); loadPlayback() })
 </script>
 
 <template>
@@ -37,12 +55,29 @@ onMounted(system.refresh)
         </NCard>
         <NCard title="调度器">
           <div class="status-row">
-            <span>阶段 1 仅运行手动同步</span>
+            <span>阶段 3 暂不启用自动调度</span>
             <NTag>{{ system.status.scheduler.jobs }} jobs</NTag>
           </div>
         </NCard>
       </div>
     </NSpin>
     <NButton style="margin-top: 20px" :loading="system.loading" @click="system.refresh">刷新状态</NButton>
+
+    <section style="margin-top: 24px">
+      <h2>继续观看</h2>
+      <p v-if="playbackError" class="error">{{ playbackError }}</p>
+      <p v-if="!watching.length" class="muted">暂无未完成的观看记录。</p>
+      <div v-else class="continue-grid">
+        <NCard v-for="item in watching" :key="item.episode_id" class="continue-card">
+          <img v-if="item.subject.image_url" :src="item.subject.image_url" :alt="item.subject.name" />
+          <div class="continue-content">
+            <h3>{{ item.subject.name }}</h3>
+            <span>第 {{ item.episode.display_number }} 集 · {{ item.episode.name }}</span>
+            <NProgress type="line" :percentage="Math.round(item.progress_ratio * 100)" />
+            <NButton type="primary" :disabled="!item.playable" @click="play(item)">{{ item.playable ? '继续观看' : '文件已缺失' }}</NButton>
+          </div>
+        </NCard>
+      </div>
+    </section>
   </div>
 </template>

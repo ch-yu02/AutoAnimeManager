@@ -7,13 +7,13 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 
 from backend.app.config import AppSettings
-from backend.app.database.models import EpisodeFile, LibraryScanRun, MediaFile
+from backend.app.database.models import EpisodeFile, IgnoredMediaPath, LibraryScanRun, MediaFile, PlaybackState
 from backend.app.database.session import session_scope
 from backend.app.modules.library.matcher import match_media_file, refresh_episode_statuses
-from backend.app.modules.library.parser import parse_filename
+from backend.app.modules.library.parser import PARSER_VERSION, parse_filename
 from backend.app.modules.library.probe import probe_media
 
 logger = logging.getLogger(__name__)
@@ -51,12 +51,27 @@ def _full_hash(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _parser_is_outdated(media: MediaFile) -> bool:
+    try:
+        parsed = json.loads(media.parse_result)
+    except (json.JSONDecodeError, TypeError):
+        return True
+    return not isinstance(parsed, dict) or parsed.get("parser_version") != PARSER_VERSION
+
+
 def calculate_full_hash(media: MediaFile) -> str:
     path = Path(media.path)
     if not media.exists or not path.is_file():
         raise FileNotFoundError(media.path)
     media.full_hash = _full_hash(path)
     return media.full_hash
+
+
+def delete_media_record(session, media: MediaFile) -> None:
+    """Delete a media inventory row without leaving mappings or playback references behind."""
+    session.execute(update(PlaybackState).where(PlaybackState.media_file_id == media.id).values(media_file_id=None))
+    session.execute(delete(EpisodeFile).where(EpisodeFile.media_file_id == media.id))
+    session.delete(media)
 
 
 def refresh_primary_conflicts(session) -> None:
@@ -96,6 +111,8 @@ class LibraryScanner:
         roots = [root.expanduser().resolve() for root in settings.storage.effective_library_roots()]
         excluded = [settings.storage.download_path.expanduser().resolve(), settings.storage.quarantine_path.expanduser().resolve()]
         extensions = set(settings.storage.video_extensions)
+        with session_scope() as session:
+            ignored_paths = set(session.scalars(select(IgnoredMediaPath.path)))
         files: list[Path] = []
         for root in roots:
             if not root.exists():
@@ -104,10 +121,40 @@ class LibraryScanner:
                 if not path.is_file() or path.suffix.lower() not in extensions | VIDEO_CANDIDATE_EXTENSIONS:
                     continue
                 resolved = path.resolve()
-                if any(_inside(resolved, directory) for directory in excluded):
+                if str(resolved) in ignored_paths or any(_inside(resolved, directory) for directory in excluded):
                     continue
                 files.append(resolved)
         return sorted(set(files))
+
+    def rematch_review(self) -> dict[str, int]:
+        processed = 0
+        matched = 0
+        with session_scope() as session:
+            media_files = list(session.scalars(
+                select(MediaFile).where(
+                    MediaFile.review_reason.is_not(None),
+                    MediaFile.exists.is_(True),
+                    MediaFile.ignored.is_(False),
+                    MediaFile.subject_manually_locked.is_(False),
+                ).order_by(MediaFile.id)
+            ))
+            for media in media_files:
+                path = Path(media.path)
+                if not path.is_file():
+                    delete_media_record(session, media)
+                    continue
+                processed += 1
+                parsed = parse_filename(path)
+                media.parse_result = json.dumps(parsed.to_dict(), ensure_ascii=False)
+                if match_media_file(session, media, path, parsed):
+                    matched += 1
+            refresh_primary_conflicts(session)
+            refresh_episode_statuses(session)
+            review_count = sum(
+                media.review_reason is not None and media.exists and not media.ignored
+                for media in session.scalars(select(MediaFile))
+            )
+        return {"processed_count": processed, "matched_count": matched, "review_count": review_count}
 
     def scan(self, task_id: str | None = None) -> str:
         task_id = task_id or str(uuid.uuid4())
@@ -119,6 +166,11 @@ class LibraryScanner:
                 session.add(run)
         try:
             settings = self.settings_provider()
+            with session_scope() as session:
+                for media in session.scalars(select(MediaFile).where(MediaFile.ignored.is_(True))):
+                    if session.scalar(select(IgnoredMediaPath.id).where(IgnoredMediaPath.path == media.path)) is None:
+                        session.add(IgnoredMediaPath(path=media.path))
+                    delete_media_record(session, media)
             paths = self._discover(settings)
             allowed_extensions = set(settings.storage.video_extensions)
             seen: set[str] = set()
@@ -141,6 +193,15 @@ class LibraryScanner:
                         media.last_scanned_at = now
                         if media.review_reason == "MISSING":
                             media.review_reason = None if media.subject_id else "RESTORED_FOR_REVIEW"
+                        if (
+                            not media.ignored
+                            and not media.subject_manually_locked
+                            and (media.review_reason is not None or _parser_is_outdated(media))
+                        ):
+                            parsed = parse_filename(path)
+                            media.parse_result = json.dumps(parsed.to_dict(), ensure_ascii=False)
+                            if match_media_file(session, media, path, parsed):
+                                run.matched_count += 1
                         continue
                     if media is None:
                         media = next((item for item in existing if item.path not in disk_paths and item.device_id == stat.st_dev and item.inode == stat.st_ino), None)
@@ -222,9 +283,8 @@ class LibraryScanner:
                         stored_path = Path(media.path).resolve()
                     except OSError:
                         continue
-                    if media.path not in seen and any(_inside(stored_path, root) for root in roots) and media.exists:
-                        media.exists = False
-                        media.review_reason = "MISSING"
+                    if media.path not in seen and any(_inside(stored_path, root) for root in roots):
+                        delete_media_record(session, media)
                         run.missing_count += 1
                 refresh_primary_conflicts(session)
                 refresh_episode_statuses(session)

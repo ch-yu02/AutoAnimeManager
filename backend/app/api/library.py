@@ -8,12 +8,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, select, update
 
 from backend.app.config import get_settings
-from backend.app.database.models import Episode, EpisodeFile, MediaFile, Subject
+from backend.app.database.models import Episode, EpisodeFile, IgnoredMediaPath, MediaFile, Subject
 from backend.app.database.session import session_scope
 from backend.app.modules.library.manifest import write_manifest
 from backend.app.modules.library.matcher import refresh_episode_statuses
-from backend.app.modules.library.service import LibraryScanService
-from backend.app.modules.library.scanner import calculate_full_hash, refresh_primary_conflicts
+from backend.app.modules.library.service import LibraryBusyError, LibraryScanService
+from backend.app.modules.library.scanner import calculate_full_hash, delete_media_record, refresh_primary_conflicts
 
 router = APIRouter(prefix="/library", tags=["library"])
 
@@ -88,7 +88,10 @@ def _file_view(session, media: MediaFile) -> dict[str, object]:
 
 @router.post("/scan", status_code=status.HTTP_202_ACCEPTED)
 async def start_scan(request: Request) -> dict[str, object]:
-    result = await _service(request).start()
+    try:
+        result = await _service(request).start()
+    except LibraryBusyError as exc:
+        raise HTTPException(409, detail={"code": "library_busy", "message": str(exc)}) from exc
     return {"task_id": result.task_id, "status": result.status, "reused": result.reused}
 
 
@@ -126,6 +129,14 @@ async def review_queue() -> dict[str, list[dict[str, object]]]:
             "ignored": [_file_view(session, item) for item in media if item.ignored],
             "missing": [_file_view(session, item) for item in media if not item.exists],
         }
+
+
+@router.post("/review/rematch")
+async def rematch_review(request: Request) -> dict[str, int]:
+    try:
+        return await _service(request).rematch_review()
+    except LibraryBusyError as exc:
+        raise HTTPException(409, detail={"code": "library_busy", "message": str(exc)}) from exc
 
 
 @router.post("/files/{file_id}/match")
@@ -192,8 +203,17 @@ async def ignore_file(file_id: int, payload: IgnoreRequest) -> dict[str, object]
         media = session.get(MediaFile, file_id)
         if media is None:
             raise HTTPException(404, detail={"code": "file_not_found", "message": "媒体文件不存在"})
-        media.ignored = payload.ignored
-        media.review_reason = None if payload.ignored else "RESTORED_FOR_REVIEW"
+        if payload.ignored:
+            result = _file_view(session, media)
+            result["ignored"] = True
+            if session.scalar(select(IgnoredMediaPath.id).where(IgnoredMediaPath.path == media.path)) is None:
+                session.add(IgnoredMediaPath(path=media.path))
+            delete_media_record(session, media)
+            refresh_primary_conflicts(session)
+            refresh_episode_statuses(session)
+            return result
+        media.ignored = False
+        media.review_reason = "RESTORED_FOR_REVIEW"
         refresh_primary_conflicts(session)
         refresh_episode_statuses(session)
         return _file_view(session, media)

@@ -12,6 +12,7 @@ from sqlalchemy import delete, select
 
 from backend.app.config import BangumiConfig, get_settings
 from backend.app.database.models.episode import Episode
+from backend.app.database.models.media import MediaFile
 from backend.app.database.models.subject import Subject, SubjectRelation
 from backend.app.database.models.sync import SyncRun
 from backend.app.database.session import session_scope
@@ -23,6 +24,7 @@ from backend.app.modules.bangumi.schemas import (
     BangumiRelation,
     BangumiSubject,
 )
+from backend.app.modules.library.parser import normalize_title
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +129,7 @@ class BangumiSyncService:
                 existing_target = existing is not None and (
                     existing.collection_type is not None or existing.keep_forever
                 )
-                if collection.collection_type in {"WISH", "DOING"} or existing_target:
+                if collection.collection_type in {"WISH", "DOING", "COLLECTED", "ON_HOLD", "DROPPED"} or existing_target:
                     eligible.append(collection)
 
         errors: list[str] = []
@@ -148,6 +150,8 @@ class BangumiSyncService:
                 errors.append(f"subject {collection.subject_id}: unexpected_error")
             self._update_progress(task_id, processed=processed, succeeded=succeeded, failed=len(errors))
 
+        await self._sync_locally_relevant_relations(client)
+
         if not eligible:
             self._finish_run(task_id, "SUCCESS", processed=0, succeeded=0, failed=0)
         elif errors and succeeded:
@@ -160,7 +164,7 @@ class BangumiSyncService:
     def _persist_subject(
         self,
         subject_data: BangumiSubject,
-        collection: BangumiCollection,
+        collection: BangumiCollection | None,
         episodes: list[BangumiEpisode],
         relations: list[BangumiRelation],
         episode_status: dict[int, str],
@@ -183,8 +187,9 @@ class BangumiSyncService:
             subject.air_status = subject_data.air_status
             subject.platform = subject_data.platform
             subject.total_main_episodes = subject_data.total_main_episodes
-            subject.collection_type = collection.collection_type
-            subject.collection_updated_at = collection.updated_at
+            if collection is not None:
+                subject.collection_type = collection.collection_type
+                subject.collection_updated_at = collection.updated_at
             subject.last_synced_at = now
 
             for episode_data in episodes:
@@ -226,6 +231,58 @@ class BangumiSyncService:
                         relation_type=relation.relation_type,
                     )
                 )
+
+    async def _sync_locally_relevant_relations(self, client: BangumiClient) -> None:
+        """Hydrate related anime only when an ambiguous local filename provides title evidence."""
+        relation_types = {"续集", "前传", "番外篇", "相同世界观", "不同演绎", "总集篇", "衍生"}
+        with session_scope() as session:
+            pending_titles = []
+            for media in session.scalars(select(MediaFile).where(MediaFile.review_reason == "AMBIGUOUS_SUBJECT")):
+                try:
+                    parsed = json.loads(media.parse_result)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                title = parsed.get("normalized_title") if isinstance(parsed, dict) else None
+                if isinstance(title, str) and title:
+                    pending_titles.append(title)
+            if not pending_titles:
+                return
+
+            related_ids: set[int] = set()
+            for subject in session.scalars(select(Subject).where(Subject.collection_type.is_not(None))):
+                try:
+                    aliases = json.loads(subject.aliases)
+                except (json.JSONDecodeError, TypeError):
+                    aliases = []
+                titles = [subject.name, subject.name_cn, *(aliases if isinstance(aliases, list) else [])]
+                normalized = [normalize_title(title) for title in titles if isinstance(title, str) and title]
+                if not any(len(title) >= 8 and title in pending for title in normalized for pending in pending_titles):
+                    continue
+                for relation in session.scalars(select(SubjectRelation).where(SubjectRelation.subject_id == subject.id)):
+                    if relation.relation_type in relation_types:
+                        related = session.get(Subject, relation.related_subject_id)
+                        if related is not None and related.collection_type is None:
+                            related_ids.add(related.bangumi_subject_id)
+
+        for related_id in related_ids:
+            try:
+                subject_data = await client.get_subject(related_id)
+                titles = [subject_data.name, subject_data.name_cn, *subject_data.aliases]
+                normalized = [normalize_title(title) for title in titles if title]
+                if not any(
+                    len(title) >= 8 and (title == pending or title in pending or pending in title)
+                    for title in normalized for pending in pending_titles
+                ):
+                    continue
+                episodes = await client.get_episodes(related_id)
+                relations = await client.get_subject_relations(related_id)
+                self._persist_subject(subject_data, None, episodes, relations, {})
+                with session_scope() as session:
+                    related = session.scalar(select(Subject).where(Subject.bangumi_subject_id == related_id))
+                    if related is not None:
+                        related.keep_forever = True
+            except BangumiError:
+                logger.warning("Bangumi related subject hydration failed", extra={"subject_id": related_id})
 
     def _update_progress(self, task_id: str, *, processed: int, succeeded: int, failed: int) -> None:
         with session_scope() as session:

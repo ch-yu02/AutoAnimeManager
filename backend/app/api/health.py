@@ -63,6 +63,6 @@ async def status(request: Request) -> dict[str, object]:
         "integrations": {
             "bangumi": "not_tested",
             "qbittorrent": "not_tested",
-            "mpv": "not_tested",
+            "ffmpeg": "not_tested",
         },
     }

@@ -19,13 +19,20 @@ class ScanStart:
     reused: bool = False
 
 
+class LibraryBusyError(RuntimeError):
+    pass
+
+
 class LibraryScanService:
     def __init__(self, scanner: LibraryScanner) -> None:
         self.scanner = scanner
         self._active_id: str | None = None
         self._active_task: asyncio.Task[None] | None = None
+        self._rematching = False
 
     async def start(self) -> ScanStart:
+        if self._rematching:
+            raise LibraryBusyError("待审核媒体正在重新匹配")
         if self._active_id:
             return ScanStart(self._active_id, "RUNNING", True)
         task_id = str(uuid.uuid4())
@@ -34,6 +41,15 @@ class LibraryScanService:
         self._active_id = task_id
         self._active_task = asyncio.create_task(self._run(task_id))
         return ScanStart(task_id, "RUNNING")
+
+    async def rematch_review(self) -> dict[str, int]:
+        if self._active_id or self._rematching:
+            raise LibraryBusyError("媒体库任务正在运行")
+        self._rematching = True
+        try:
+            return self.scanner.rematch_review()
+        finally:
+            self._rematching = False
 
     async def _run(self, task_id: str) -> None:
         try:

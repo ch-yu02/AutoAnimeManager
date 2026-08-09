@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from backend.app.database.models.episode import Episode
 from backend.app.database.models.media import EpisodeFile, MediaFile
+from backend.app.database.models.playback import PlaybackState
 from backend.app.database.models.subject import Subject, SubjectRelation
 from backend.app.database.models.sync import SyncRun
 from backend.app.database.session import session_scope
@@ -29,6 +30,7 @@ class SubjectListItem(BaseModel):
     air_status: str
     platform: str
     collection_type: str | None
+    collection_updated_at: datetime | None
     total_main_episodes: int | None
     episode_count: int
     main_episode_count: int
@@ -67,6 +69,7 @@ class EpisodeView(BaseModel):
     ignored: bool
     local_status: str
     media_files: list[dict[str, object]] = Field(default_factory=list)
+    playback: dict[str, object] | None = None
     last_synced_at: datetime | None
 
 
@@ -88,6 +91,7 @@ def _list_item(session, subject: Subject) -> SubjectListItem:
         air_status=subject.air_status,
         platform=subject.platform,
         collection_type=subject.collection_type,
+        collection_updated_at=subject.collection_updated_at,
         total_main_episodes=subject.total_main_episodes,
         episode_count=len(episodes),
         main_episode_count=sum(episode.episode_type == "MAIN" for episode in episodes),
@@ -100,12 +104,21 @@ async def list_subjects(
     collection_type: str | None = Query(default=None),
     status_filter: str | None = Query(default=None, alias="status"),
     collection_status: str | None = Query(default=None),
+    local_only: bool = Query(default=False),
 ) -> list[SubjectListItem]:
     selected_type = collection_type or status_filter or collection_status
     with session_scope() as session:
         query = select(Subject).where(Subject.collection_type.is_not(None)).order_by(Subject.updated_at.desc())
         if selected_type:
             query = query.where(Subject.collection_type == selected_type.upper())
+        if local_only:
+            local_subjects = (
+                select(Episode.subject_id)
+                .join(EpisodeFile, EpisodeFile.episode_id == Episode.id)
+                .join(MediaFile, MediaFile.id == EpisodeFile.media_file_id)
+                .where(MediaFile.exists.is_(True), MediaFile.ignored.is_(False))
+            )
+            query = query.where(Subject.id.in_(local_subjects))
         subjects = list(session.scalars(query))
         return [_list_item(session, subject) for subject in subjects]
 
@@ -174,7 +187,7 @@ async def list_episodes(subject_id: int) -> list[EpisodeView]:
             )
             result.append(
                 EpisodeView(
-                    **EpisodeView.model_validate(episode).model_dump(exclude={"media_files"}),
+                    **EpisodeView.model_validate(episode).model_dump(exclude={"media_files", "playback"}),
                     media_files=[
                         {
                             "id": media.id, "path": media.path, "exists": media.exists,
@@ -182,6 +195,19 @@ async def list_episodes(subject_id: int) -> list[EpisodeView]:
                         }
                         for mapping, media in files
                     ],
+                    playback=(
+                        {
+                            "position_seconds": playback.position_seconds,
+                            "duration_seconds": playback.duration_seconds,
+                            "progress_ratio": playback.progress_ratio,
+                            "watched": playback.watched,
+                            "watched_source": playback.watched_source,
+                            "last_played_at": playback.last_played_at,
+                        }
+                        if (playback := session.scalar(
+                            select(PlaybackState).where(PlaybackState.episode_id == episode.id)
+                        )) else None
+                    ),
                 )
             )
         return result

@@ -180,3 +180,23 @@ async def test_server_errors_are_temporary(status_code: int) -> None:
     with pytest.raises(BangumiTemporaryError):
         await client.test_connection()
     await http_client.aclose()
+
+
+@pytest.mark.anyio
+async def test_episode_watch_state_writeback_uses_official_endpoint() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(204)
+
+    http_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="https://api.bgm.tv"
+    )
+    client = BangumiClient(BangumiConfig(access_token="token"), http_client=http_client)
+    await client.set_episode_collection(123, True)
+
+    assert captured[0].method == "PUT"
+    assert captured[0].url.path == "/v0/users/-/collections/-/episodes/123"
+    assert captured[0].read() == b'{"type":2}'
+    await http_client.aclose()

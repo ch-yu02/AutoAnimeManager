@@ -5,7 +5,7 @@ import { computed, h } from 'vue'
 
 const route = useRoute()
 const router = useRouter()
-const activeKey = computed(() => String(route.name ?? 'status'))
+const activeKey = computed(() => String(route.name ?? '').startsWith('subject') ? 'subjects' : String(route.name ?? 'status'))
 
 const menuOptions = [
   { label: '系统状态', key: 'status' },

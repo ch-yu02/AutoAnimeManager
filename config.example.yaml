@@ -22,7 +22,12 @@ qbittorrent:
   category: autoanime
 
 player:
-  mpv_path: mpv
+  progress_save_interval_seconds: 15
+  minimum_progress_seconds: 60
+  watched_ratio: 0.9
+  watched_remaining_seconds: 300
+  auto_play_next: false
+  bangumi_writeback_enabled: false
 
 storage:
   download_path: data/downloads

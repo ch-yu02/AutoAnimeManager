@@ -43,6 +43,14 @@ class MediaFile(Base):
     )
 
 
+class IgnoredMediaPath(Base):
+    __tablename__ = "ignored_media_paths"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    path: Mapped[str] = mapped_column(String(2000), unique=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class EpisodeFile(Base):
     __tablename__ = "episode_files"
     __table_args__ = (UniqueConstraint("episode_id", "media_file_id", name="uq_episode_media_file"),)

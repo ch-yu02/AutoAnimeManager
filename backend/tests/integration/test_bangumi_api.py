@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -6,7 +7,7 @@ from alembic import command
 from alembic.config import Config
 
 from backend.app.config import get_settings
-from backend.app.database.models import Episode, Subject
+from backend.app.database.models import Episode, EpisodeFile, MediaFile, Subject
 from backend.app.database.session import get_engine, session_scope
 from backend.app.main import create_app
 
@@ -47,28 +48,40 @@ async def test_subject_list_detail_and_episodes(tmp_path: Path, monkeypatch) -> 
             )
             session.add(subject)
             session.flush()
-            session.add(
-                Episode(
-                    bangumi_episode_id=200,
-                    subject_id=subject.id,
-                    episode_type="SPECIAL",
-                    display_number="SP",
-                    name="Special",
-                    name_cn="特别篇",
-                    watched=False,
-                    ignored=False,
-                )
+            episode = Episode(
+                bangumi_episode_id=200,
+                subject_id=subject.id,
+                episode_type="SPECIAL",
+                display_number="SP",
+                name="Special",
+                name_cn="特别篇",
+                watched=False,
+                ignored=False,
             )
+            session.add(episode)
+            session.flush()
+            media = MediaFile(
+                path=str(tmp_path / "local.mkv"), filename="local.mkv", file_size=1, mtime_ns=1,
+                last_scanned_at=datetime.now(UTC), exists=True,
+            )
+            session.add(media)
+            session.flush()
+            session.add(EpisodeFile(
+                episode_id=episode.id, media_file_id=media.id, mapping_source="TEST",
+                confidence=1, reasons="[]", is_primary=True,
+            ))
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://test",
         ) as client:
             listing = await client.get("/api/subjects?collection_status=DOING")
+            local_listing = await client.get("/api/subjects?collection_status=DOING&local_only=true")
             detail = await client.get("/api/subjects/1")
             episodes = await client.get("/api/subjects/1/episodes")
 
     assert listing.status_code == 200
     assert listing.json()[0]["display_name"] == "测试条目"
+    assert local_listing.json()[0]["display_name"] == "测试条目"
     assert detail.status_code == 200
     assert detail.json()["relations"] == []
     assert episodes.status_code == 200

@@ -11,12 +11,18 @@ from backend.app.api.bangumi import router as bangumi_router
 from backend.app.api.settings import router as settings_router
 from backend.app.api.subjects import router as subjects_router
 from backend.app.api.library import router as library_router
+from backend.app.api.playback import router as playback_router
 from backend.app.config import ensure_runtime_directories, get_settings
 from backend.app.logging import configure_logging
 from backend.app.modules.bangumi.sync_service import BangumiSyncService
 from backend.app.modules.scheduler import SchedulerSkeleton
 from backend.app.modules.library.scanner import LibraryScanner
 from backend.app.modules.library.service import LibraryScanService
+from backend.app.modules.playback.process_manager import MpvProcessManager
+from backend.app.modules.playback.service import PlaybackService
+from backend.app.modules.playback.state_service import PlaybackStateService
+from backend.app.modules.playback.writeback import writeback_episode_state
+from backend.app.modules.playback.web_stream import WebPlaybackService
 
 
 @asynccontextmanager
@@ -33,8 +39,23 @@ async def lifespan(app: FastAPI):
     app.state.library_scan_service = LibraryScanService(
         LibraryScanner(settings_provider=get_settings)
     )
-    yield
-    scheduler.stop()
+    app.state.playback_service = PlaybackService(
+        PlaybackStateService(settings_provider=lambda: get_settings().player),
+        MpvProcessManager(settings_provider=lambda: get_settings().player),
+        settings_provider=lambda: get_settings().player,
+        writeback=writeback_episode_state,
+    )
+    app.state.web_playback_service = WebPlaybackService(
+        PlaybackStateService(settings_provider=lambda: get_settings().player),
+        settings_provider=lambda: get_settings().player,
+        writeback=writeback_episode_state,
+    )
+    try:
+        yield
+    finally:
+        await app.state.playback_service.shutdown()
+        await app.state.web_playback_service.shutdown()
+        scheduler.stop()
 
 
 def create_app() -> FastAPI:
@@ -55,6 +76,7 @@ def create_app() -> FastAPI:
     app.include_router(bangumi_router, prefix="/api")
     app.include_router(subjects_router, prefix="/api")
     app.include_router(library_router, prefix="/api")
+    app.include_router(playback_router, prefix="/api")
 
     @app.get("/", include_in_schema=False)
     async def root() -> dict[str, str]:

@@ -6,12 +6,12 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
-from backend.app.database.models import Episode, EpisodeFile, MediaFile, Subject
+from backend.app.database.models import Episode, EpisodeFile, MediaFile, Subject, SubjectRelation
 from backend.app.modules.library.manifest import read_manifest
-from backend.app.modules.library.parser import ParsedFilename, normalize_title
+from backend.app.modules.library.parser import ParsedFilename, normalize_release_title, normalize_title
 
 
 @dataclass(slots=True)
@@ -20,6 +20,13 @@ class MatchCandidate:
     confidence: float
     reasons: list[str]
     source: str
+
+
+@dataclass(slots=True)
+class EpisodeMatch:
+    episode: Episode
+    priority: int
+    reason: str
 
 
 def _subject_titles(subject: Subject) -> set[str]:
@@ -34,6 +41,7 @@ def _subject_titles(subject: Subject) -> set[str]:
 def _scope_number(value: str, kind: str) -> int | None:
     patterns = {
         "season": [
+            r"\bs\s*(\d+)\b",
             r"\bseason\s*(\d+)\b", r"\b(\d+)(?:st|nd|rd|th)\s+season\b",
             r"(?:第\s*)?(\d+)\s*(?:季|期)", r"(?:第\s*)?([二三四五六七八九十])\s*(?:季|期)",
             r"(?:第\s*)?(\d+)\s*シーズン", r"シーズン\s*(\d+)",
@@ -49,6 +57,14 @@ def _scope_number(value: str, kind: str) -> int | None:
     return None
 
 
+def _base_title(value: str) -> str:
+    """Remove season/part qualifiers so short release titles can reach split subjects."""
+    value = re.sub(r"\bs\s*\d+\b|\bseason\s*\d+\b|\b\d+(?:st|nd|rd|th)\s+season\b", " ", value, flags=re.I)
+    value = re.sub(r"\bpart\s*\d+\b|(?:第\s*)?\d+\s*(?:季|期|部|篇)|(?:第\s*)?[二三四五六七八九十]\s*(?:季|期)", " ", value, flags=re.I)
+    value = re.sub(r"\bthe\s+movie\b|\bmovie\b|\bfilm\b|劇場版|剧场版|映画|电影", " ", value, flags=re.I)
+    return normalize_title(value)
+
+
 def _scope_is_compatible(parsed: ParsedFilename, title: str) -> bool:
     file_season = parsed.season or _scope_number(parsed.normalized_title, "season")
     title_season = _scope_number(title, "season")
@@ -57,6 +73,16 @@ def _scope_is_compatible(parsed: ParsedFilename, title: str) -> bool:
     file_part = _scope_number(parsed.normalized_title, "part")
     title_part = _scope_number(title, "part")
     return not file_part or title_part == file_part
+
+
+def _trailing_scope(value: str) -> int | None:
+    match = re.search(r"\s(\d{1,2})$", value)
+    if not match:
+        return None
+    prefix = value[:match.start()].rstrip()
+    if re.search(r"\b(?:part|cour)$", prefix, re.I):
+        return None
+    return int(match.group(1))
 
 
 def _directory_bangumi_id(path: Path) -> int | None:
@@ -68,27 +94,77 @@ def _directory_bangumi_id(path: Path) -> int | None:
 
 
 def _title_candidates(session: Session, path: Path, parsed: ParsedFilename) -> list[MatchCandidate]:
-    parent_names = [normalize_title(parent.name) for parent in list(path.parents)[:3]]
+    parent_names = [normalize_release_title(parent.name) for parent in list(path.parents)[:3]]
+    source_titles = [(parsed.normalized_title, "文件名"), *((name, "父目录") for name in parent_names if name)]
     candidates: list[MatchCandidate] = []
-    for subject in session.scalars(select(Subject)):
+    for subject in session.scalars(select(Subject).where(or_(Subject.collection_type.is_not(None), Subject.keep_forever.is_(True)))):
+        subject_titles = _subject_titles(subject)
+        file_season = parsed.season or _scope_number(parsed.normalized_title, "season")
+        if file_season and file_season > 1 and not any(
+            _scope_number(title, "season") == file_season or _trailing_scope(title) == file_season
+            for title in subject_titles
+        ):
+            continue
         best = 0.0
         reason = ""
-        for title in _subject_titles(subject):
-            if not _scope_is_compatible(parsed, title):
+        for title in subject_titles:
+            title_season = _scope_number(title, "season")
+            if title_season and file_season and title_season != file_season:
                 continue
-            if title in parent_names:
-                best, reason = max(best, 0.96), "父目录标题完全匹配"
-            if title and (parsed.normalized_title == title or title in parsed.normalized_title):
-                best, reason = max(best, 0.93), "文件名包含条目标题"
-            ratio = SequenceMatcher(None, title, parsed.normalized_title).ratio()
-            if ratio >= 0.92 and ratio > best:
-                best, reason = ratio, "规范化标题高度相似"
+            for source_title, source_name in source_titles:
+                if not source_title:
+                    continue
+                exact_confidence = 1.0 if source_name == "文件名" else 0.91
+                contains_confidence = 0.90
+                if source_title == title and exact_confidence > best:
+                    best, reason = exact_confidence, f"{source_name}标题完全匹配"
+                elif title in source_title and contains_confidence > best:
+                    best, reason = contains_confidence, f"{source_name}包含条目标题"
+                source_base, title_base = _base_title(source_title), _base_title(title)
+                if file_season and _trailing_scope(title_base) == file_season:
+                    title_base = re.sub(rf"\s{file_season}$", "", title_base)
+                if source_base == title_base and len(source_base) >= 8 and 0.99 > best:
+                    best, reason = 0.99, f"{source_name}标题基名完全匹配"
+                if (
+                    min(len(source_base), len(title_base)) >= 8
+                    and (source_base == title_base or source_base in title_base or title_base in source_base)
+                    and contains_confidence > best
+                ):
+                    best, reason = contains_confidence, f"{source_name}标题基名匹配"
+                ratio = SequenceMatcher(None, title, source_title).ratio()
+                ratio_confidence = ratio if source_name == "文件名" else min(0.91, ratio)
+                if ratio >= 0.92 and ratio_confidence > best:
+                    best, reason = ratio_confidence, f"{source_name}规范化标题高度相似"
         if best:
             candidates.append(MatchCandidate(subject, best, [reason], "TITLE_EPISODE"))
     return sorted(candidates, key=lambda candidate: candidate.confidence, reverse=True)
 
 
-def _episode_for_number(session: Session, subject_id: int, parsed: ParsedFilename) -> Episode | None:
+def _main_episode_count(session: Session, subject_id: int) -> int:
+    return int(session.scalar(
+        select(func.count(Episode.id)).where(Episode.subject_id == subject_id, Episode.episode_type == "MAIN")
+    ) or 0)
+
+
+def _prequel_main_count(session: Session, subject_id: int, visited: set[int] | None = None) -> int:
+    visited = set() if visited is None else visited
+    if subject_id in visited:
+        return 0
+    visited.add(subject_id)
+    relation = session.scalar(
+        select(SubjectRelation).where(
+            SubjectRelation.subject_id == subject_id,
+            SubjectRelation.relation_type.in_(("前传", "PREQUEL", "prequel")),
+        ).limit(1)
+    )
+    if relation is None:
+        return 0
+    return _prequel_main_count(session, relation.related_subject_id, visited) + _main_episode_count(
+        session, relation.related_subject_id
+    )
+
+
+def _episode_match(session: Session, subject_id: int, parsed: ParsedFilename) -> EpisodeMatch | None:
     if parsed.episode_start is None or parsed.episode_end is not None:
         return None
     desired_type = parsed.episode_type
@@ -98,13 +174,32 @@ def _episode_for_number(session: Session, subject_id: int, parsed: ParsedFilenam
         compatible = [episode for episode in episodes if episode.episode_type != "MAIN"]
     for episode in compatible:
         if episode.sort_number is not None and abs(episode.sort_number - parsed.episode_start) < 0.001:
-            return episode
+            return EpisodeMatch(episode, 3, "章节编号与类型直接匹配")
         try:
             if abs(float(episode.display_number) - parsed.episode_start) < 0.001:
-                return episode
+                return EpisodeMatch(episode, 3, "章节显示编号与类型直接匹配")
         except ValueError:
             continue
+
+    if desired_type != "MAIN" or not parsed.episode_start.is_integer():
+        return None
+    ordered = sorted(compatible, key=lambda episode: (episode.sort_number is None, episode.sort_number or 0, episode.id))
+    number = int(parsed.episode_start)
+    # Explicit season/part scope supports groups that restart numbering from 1.
+    if parsed.season is not None or _scope_number(parsed.normalized_title, "part") is not None:
+        if 1 <= number <= len(ordered):
+            return EpisodeMatch(ordered[number - 1], 2, "按季度内集数顺序匹配")
+    # Unscoped releases may continue numbering across sequel subjects.
+    offset = _prequel_main_count(session, subject_id)
+    local_number = number - offset
+    if offset > 0 and 1 <= local_number <= len(ordered):
+        return EpisodeMatch(ordered[local_number - 1], 2, "按前作累计集数换算匹配")
     return None
+
+
+def _episode_for_number(session: Session, subject_id: int, parsed: ParsedFilename) -> Episode | None:
+    match = _episode_match(session, subject_id, parsed)
+    return match.episode if match else None
 
 
 def _replace_automatic_mapping(
@@ -188,14 +283,37 @@ def match_media_file(session: Session, media: MediaFile, path: Path, parsed: Par
     if parsed.is_batch:
         media.review_reason = "BATCH_REQUIRES_REVIEW"
         return False
-    if parsed.episode_start is None:
-        media.review_reason = "EPISODE_NOT_PARSED"
+    if session.scalar(select(Subject.id).limit(1)) is None:
+        media.review_reason = "METADATA_NOT_READY"
+        media.subject_reasons = json.dumps(["尚未同步 Bangumi 条目与章节元数据"], ensure_ascii=False)
         return False
     candidates = _title_candidates(session, path, parsed)
-    if not candidates or candidates[0].confidence < 0.90:
+    if not candidates:
+        media.review_reason = "EPISODE_NOT_PARSED" if parsed.episode_start is None else "SUBJECT_NOT_FOUND"
+        media.subject_reasons = json.dumps(["已同步的 Bangumi 收藏中没有可靠的标题候选"], ensure_ascii=False)
+        return False
+    episode_matches: dict[int, EpisodeMatch] = {}
+    if parsed.episode_type == "MAIN" and parsed.episode_start is not None and parsed.episode_end is None:
+        episode_matches = {
+            candidate.subject.id: match
+            for candidate in candidates
+            if (match := _episode_match(session, candidate.subject.id, parsed)) is not None
+        }
+        if episode_matches:
+            best_priority = max(match.priority for match in episode_matches.values())
+            candidates = [
+                candidate for candidate in candidates
+                if (match := episode_matches.get(candidate.subject.id)) is not None and match.priority == best_priority
+            ]
+    if candidates[0].confidence < 0.90:
         media.review_reason = "LOW_CONFIDENCE"
         return False
-    if len(candidates) > 1 and candidates[0].confidence - candidates[1].confidence < 0.08:
+    exact_filename_winner = (
+        candidates[0].confidence == 1.0
+        and candidates[0].reasons == ["文件名标题完全匹配"]
+        and candidates[1].confidence < 1.0
+    ) if len(candidates) > 1 else False
+    if len(candidates) > 1 and candidates[0].confidence - candidates[1].confidence < 0.08 and not exact_filename_winner:
         media.review_reason = "AMBIGUOUS_SUBJECT"
         media.subject_reasons = json.dumps(
             [f"候选：{candidate.subject.name_cn or candidate.subject.name} ({candidate.confidence:.2f})" for candidate in candidates[:3]],
@@ -203,12 +321,37 @@ def match_media_file(session: Session, media: MediaFile, path: Path, parsed: Par
         )
         return False
     winner = candidates[0]
-    episode = _episode_for_number(session, winner.subject.id, parsed)
-    if episode is None:
-        media.review_reason = "EPISODE_NOT_FOUND"
+    if parsed.episode_type == "EXTRA":
+        media.subject_id = winner.subject.id
+        media.subject_mapping_source = winner.source
+        media.subject_confidence = winner.confidence
+        media.subject_reasons = json.dumps(winner.reasons + ["识别为非正片附加内容"], ensure_ascii=False)
+        media.review_reason = "EXTRA_REQUIRES_REVIEW"
         return False
-    reasons = winner.reasons + ["章节编号与类型匹配"]
-    _replace_automatic_mapping(session, media, winner.subject, [episode], winner.source, winner.confidence, reasons)
+    episode_match = episode_matches.get(winner.subject.id) or _episode_match(session, winner.subject.id, parsed)
+    episode = episode_match.episode if episode_match else None
+    inferred_single_episode = False
+    if episode is None and parsed.episode_start is None and parsed.episode_type == "MAIN":
+        main_episodes = list(session.scalars(
+            select(Episode).where(Episode.subject_id == winner.subject.id, Episode.episode_type == "MAIN")
+        ))
+        if winner.subject.total_main_episodes == 1 and len(main_episodes) == 1:
+            episode = main_episodes[0]
+            inferred_single_episode = True
+    if episode is None:
+        media.subject_id = winner.subject.id
+        media.subject_mapping_source = winner.source
+        media.subject_confidence = winner.confidence
+        media.subject_reasons = json.dumps(winner.reasons, ensure_ascii=False)
+        media.review_reason = "EPISODE_NOT_PARSED" if parsed.episode_start is None else "EPISODE_NOT_FOUND"
+        return False
+    reasons = winner.reasons + (
+        ["单章节条目自动映射到唯一 MAIN 章节"]
+        if inferred_single_episode
+        else [episode_match.reason if episode_match else "章节编号与类型匹配"]
+    )
+    confidence = min(winner.confidence, 0.92) if inferred_single_episode else winner.confidence
+    _replace_automatic_mapping(session, media, winner.subject, [episode], winner.source, confidence, reasons)
     return True
 
 

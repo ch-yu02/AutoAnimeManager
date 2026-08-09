@@ -199,3 +199,32 @@ class BangumiClient:
         payload = await self._request_json(f"/users/{user}")
         if not isinstance(payload, dict):
             raise BangumiResponseError("Bangumi 用户响应格式无效")
+
+    async def set_episode_collection(self, episode_id: int, watched: bool) -> None:
+        client = self._client
+        if client is None:
+            client = httpx.AsyncClient(base_url=self.settings.base_url, timeout=self.settings.timeout)
+            self._client = client
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = await client.put(
+                    self._path(f"/users/-/collections/-/episodes/{episode_id}"),
+                    json={"type": 2 if watched else 0},
+                    headers={**self._headers(), "Content-Type": "application/json"},
+                )
+            except (httpx.TimeoutException, httpx.RequestError) as exc:
+                if attempt < self.max_retries:
+                    await asyncio.sleep(self.retry_delay * (attempt + 1))
+                    continue
+                raise BangumiTemporaryError("Bangumi 观看状态回写失败") from exc
+            if response.status_code in (401, 403):
+                raise BangumiAuthError("Bangumi Token 无效或无权回写", status_code=response.status_code)
+            if response.status_code == 429 or response.status_code >= 500:
+                if attempt < self.max_retries:
+                    await asyncio.sleep(self.retry_delay * (attempt + 1))
+                    continue
+                raise BangumiTemporaryError("Bangumi 观看状态回写暂时不可用", status_code=response.status_code)
+            if response.status_code >= 400:
+                raise BangumiError(f"Bangumi 观看状态回写失败（HTTP {response.status_code}）", status_code=response.status_code)
+            return
+        raise BangumiTemporaryError("Bangumi 观看状态回写失败")

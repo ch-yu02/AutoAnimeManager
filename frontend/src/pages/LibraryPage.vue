@@ -13,7 +13,9 @@ const primary = ref(true)
 const lock = ref(true)
 const scan = ref<LibraryScanStatus | null>(null)
 const loading = ref(false)
+const rematching = ref(false)
 const error = ref('')
+const rematchMessage = ref('')
 let timer: ReturnType<typeof setInterval> | undefined
 
 const subjectOptions = computed(() => subjects.value.map((item) => ({ label: item.display_name, value: item.id })))
@@ -38,6 +40,18 @@ async function startScan() {
   scan.value = { task_id: started.task_id, status: started.status }
   if (timer) clearInterval(timer)
   timer = setInterval(poll, 700)
+}
+
+async function rematchReview() {
+  rematching.value = true
+  error.value = ''
+  rematchMessage.value = ''
+  try {
+    const result = await api.rematchReview()
+    rematchMessage.value = `已重新匹配 ${result.processed_count} 个待审核文件，成功 ${result.matched_count} 个，剩余 ${result.review_count} 个。`
+    await load()
+  } catch (reason) { error.value = reason instanceof Error ? reason.message : '重新匹配失败' }
+  finally { rematching.value = false }
 }
 
 async function poll() {
@@ -69,9 +83,13 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
   <div>
     <div class="library-heading">
       <div><h1 class="page-title">媒体库</h1><p class="page-description">扫描本地视频，审核低置信度匹配并维护人工锁定。</p></div>
-      <NButton type="primary" :loading="scan?.status === 'RUNNING'" @click="startScan">扫描媒体库</NButton>
+      <div class="button-row">
+        <NButton :loading="rematching" :disabled="scan?.status === 'RUNNING'" @click="rematchReview">重新匹配待审核媒体</NButton>
+        <NButton type="primary" :loading="scan?.status === 'RUNNING'" :disabled="rematching" @click="startScan">扫描媒体库</NButton>
+      </div>
     </div>
     <p v-if="scan" class="muted">{{ scan.status }} · 发现 {{ scan.discovered_count || 0 }}，新增 {{ scan.added_count || 0 }}，移动 {{ scan.moved_count || 0 }}，缺失 {{ scan.missing_count || 0 }}，待审核 {{ scan.review_count || 0 }}</p>
+    <p v-if="rematchMessage" class="sync-message">{{ rematchMessage }}</p>
     <p v-if="error" class="error">{{ error }}</p>
     <NSpin :show="loading">
       <NCard title="人工关联" style="margin-bottom: 16px">
