@@ -20,6 +20,8 @@ qbittorrent:
   username: ""
   password: ""
   category: autoanime
+  timeout: 10
+  poll_interval_seconds: 3
 
 player:
   progress_save_interval_seconds: 15
@@ -30,7 +32,7 @@ player:
   bangumi_writeback_enabled: false
 
 storage:
-  download_path: data/downloads
+  # qBittorrent 任务直接下载到第一个媒体库根目录下的 Subject 文件夹。
   # 可配置多个递归扫描根目录；未设置时兼容使用 library_path。
   library_path: data/library
   library_roots:

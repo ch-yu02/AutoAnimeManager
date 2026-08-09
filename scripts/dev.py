@@ -64,6 +64,11 @@ def build_desktop(root: Path) -> None:
     )
 
 
+def migrate_database(root: Path) -> None:
+    print("[AutoAnime] 检查数据库迁移……", flush=True)
+    subprocess.run([project_python(root), "-m", "scripts.migrate"], cwd=root, check=True)
+
+
 def start_process(command: list[str], root: Path) -> subprocess.Popen[bytes]:
     return subprocess.Popen(
         command,
@@ -142,6 +147,11 @@ def main(argv: list[str] | None = None) -> int:
             return 1
     if not executable.is_file():
         print("[AutoAnime] 找不到 desktop/build/autoanime-desktop，请取消 --no-build 后重试。", file=sys.stderr)
+        return 1
+    try:
+        migrate_database(root)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        print(f"[AutoAnime] 数据库迁移失败：{exc}", file=sys.stderr)
         return 1
 
     processes: dict[str, subprocess.Popen[bytes]] = {}

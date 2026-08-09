@@ -46,6 +46,8 @@ class QBittorrentConfig(BaseModel):
     username: str = ""
     password: SecretStr = SecretStr("")
     category: str = "autoanime"
+    timeout: float = Field(default=10.0, gt=0, le=120)
+    poll_interval_seconds: float = Field(default=3.0, ge=0.5, le=60)
 
 
 class PlayerConfig(BaseModel):
@@ -58,7 +60,6 @@ class PlayerConfig(BaseModel):
 
 
 class StorageConfig(BaseModel):
-    download_path: Path = Path("data/downloads")
     library_path: Path = Path("data/library")
     library_roots: list[Path] = Field(default_factory=list)
     quarantine_path: Path = Path("data/quarantine")
@@ -154,7 +155,6 @@ def ensure_runtime_directories(settings: AppSettings) -> None:
         Path("data/cache"),
         Path("data/logs"),
         Path("data/backups"),
-        settings.storage.download_path,
         settings.storage.quarantine_path,
         *settings.storage.effective_library_roots(),
     ]

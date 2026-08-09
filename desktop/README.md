@@ -50,6 +50,9 @@ PlayerPage / MpvVideoItem
 3. 检查 H.264/HEVC、24/30/60 fps、内封/外挂字幕、音轨、速度、前后集与 EOF。
 4. 播放中退出，重新打开同一 Episode，应从保存位置继续；从头播放应从 0 开始。
 5. Library Review 执行重新匹配、人工关联、重新解析和忽略；Settings 可保存现有后端支持的配置。
+6. Settings 填写 qBittorrent WebUI 并测试连接；进入缺失 Episode，粘贴 magnet 后应直接下载到第一个媒体目录的 Subject 文件夹，完成后启用播放且保留任务记录。
+7. 在下载页分别验证“仅删除下载任务”保留媒体文件、“删除任务及本地文件”删除媒体文件；下载失败后的残余文件遵循相同规则。
+7. 下载页应持续显示进度，暂停、继续、失败重试和删除 qBittorrent 任务有效；关闭并重启程序后未完成任务继续同步。
 
 ## 复用来源
 
@@ -57,3 +60,5 @@ PlayerPage / MpvVideoItem
 - KDE MpvQt 的 `QQuickFramebufferObject`、渲染线程销毁 `mpv_render_context`、update callback 模式；
 - mpv 官方 `libmpv/qml` 示例的 OpenGL proc-address、FBO Render API 和 `LC_NUMERIC=C`；
 - KDE Haruna 的浮动播放控制条、双击全屏、自动隐藏 controls、轨道菜单与外挂字幕交互模式。
+- AutoBangumi 的 qBittorrent 长连接会话、登录失败分类、403 单次重登录、跨 qBittorrent 4/5 的 pause/resume 兼容及重复任务确认流程。
+- qBittorrent 官方 WebUI API 的 `add/info/files/filePrio/setCategory/addTags/delete` 请求契约与任务状态定义。

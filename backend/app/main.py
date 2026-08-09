@@ -16,6 +16,7 @@ from backend.app.api.settings import router as settings_router
 from backend.app.api.subjects import router as subjects_router
 from backend.app.api.library import router as library_router
 from backend.app.api.playback import router as playback_router
+from backend.app.api.downloads import router as downloads_router
 from backend.app.config import ensure_runtime_directories, get_settings
 from backend.app.logging import configure_logging
 from backend.app.modules.bangumi.sync_service import BangumiSyncService
@@ -25,6 +26,7 @@ from backend.app.modules.library.service import LibraryScanService
 from backend.app.modules.playback.session_service import PlaybackSessionService
 from backend.app.modules.playback.state_service import PlaybackStateService
 from backend.app.modules.playback.writeback import writeback_episode_state
+from backend.app.modules.download import DownloadService
 
 
 @asynccontextmanager
@@ -47,9 +49,13 @@ async def lifespan(app: FastAPI):
         settings_provider=lambda: get_settings().player,
         writeback=writeback_episode_state,
     )
+    download_service = DownloadService()
+    app.state.download_service = download_service
+    download_service.start()
     try:
         yield
     finally:
+        await download_service.stop()
         scheduler.stop()
 
 
@@ -72,6 +78,7 @@ def create_app() -> FastAPI:
     app.include_router(subjects_router, prefix="/api")
     app.include_router(library_router, prefix="/api")
     app.include_router(playback_router, prefix="/api")
+    app.include_router(downloads_router, prefix="/api")
 
     frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 

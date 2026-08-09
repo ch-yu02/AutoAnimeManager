@@ -44,6 +44,7 @@ ApplicationWindow {
     function openSubjects() { leavePlayer(); stack.replace(subjectsComponent) }
     function openSubject(id) { leavePlayer(); stack.replace(detailComponent, { subjectId: id }) }
     function openLibrary() { leavePlayer(); stack.replace(libraryComponent) }
+    function openDownloads() { leavePlayer(); stack.replace(downloadsComponent) }
     function openSettings() { leavePlayer(); stack.replace(settingsComponent) }
     function openPlayer(episodeId, fromStart, episodes, title) {
         stack.push(playerComponent, {
@@ -57,6 +58,7 @@ ApplicationWindow {
     Shortcut { sequence: "Ctrl+1"; onActivated: window.openHome() }
     Shortcut { sequence: "Ctrl+2"; onActivated: window.openSubjects() }
     Shortcut { sequence: "Ctrl+3"; onActivated: window.openLibrary() }
+    Shortcut { sequence: "Ctrl+4"; onActivated: window.openDownloads() }
     Shortcut { sequence: "Ctrl+,"; onActivated: window.openSettings() }
 
     RowLayout {
@@ -87,6 +89,7 @@ ApplicationWindow {
                         { label: "首页", icon: "⌂", action: window.openHome },
                         { label: "条目", icon: "▦", action: window.openSubjects },
                         { label: "媒体库", icon: "◫", action: window.openLibrary },
+                        { label: "下载", icon: "⇩", action: window.openDownloads },
                         { label: "设置", icon: "⚙", action: window.openSettings }
                     ]
                     delegate: Button {
@@ -191,6 +194,7 @@ ApplicationWindow {
     Component { id: detailComponent; SubjectDetailPage { onBack: window.openSubjects(); onPlayEpisode: (id, fromStart, episodes, title) => window.openPlayer(id, fromStart, episodes, title) } }
     Component { id: playerComponent; PlayerPage { onBack: stack.pop() } }
     Component { id: libraryComponent; LibraryPage {} }
+    Component { id: downloadsComponent; DownloadsPage { onOpenSubject: id => window.openSubject(id) } }
     Component { id: settingsComponent; SettingsPage {} }
 
     Component.onCompleted: {

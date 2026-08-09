@@ -29,6 +29,7 @@ class QmlBackend final : public QObject {
     Q_PROPERTY(QVariantMap review READ review NOTIFY libraryChanged)
     Q_PROPERTY(QVariantMap scanStatus READ scanStatus NOTIFY libraryChanged)
     Q_PROPERTY(QVariantMap settings READ settings NOTIFY settingsChanged)
+    Q_PROPERTY(QVariantList downloads READ downloads NOTIFY downloadsChanged)
 
 public:
     explicit QmlBackend(QUrl baseUrl, QObject *parent = nullptr);
@@ -46,12 +47,20 @@ public:
     QVariantMap review() const { return m_review; }
     QVariantMap scanStatus() const { return m_scanStatus; }
     QVariantMap settings() const { return m_settings; }
+    QVariantList downloads() const { return m_downloads; }
 
     Q_INVOKABLE void loadHome();
     Q_INVOKABLE void loadSubjects(const QString &collectionType, bool localOnly);
     Q_INVOKABLE void loadSubject(qint64 subjectId);
     Q_INVOKABLE void loadLibrary();
     Q_INVOKABLE void loadSettings();
+    Q_INVOKABLE void loadDownloads();
+    Q_INVOKABLE void setDownloadPolling(bool enabled);
+    Q_INVOKABLE void addDownload(qint64 episodeId, const QString &magnet);
+    Q_INVOKABLE void pauseDownload(const QString &jobId);
+    Q_INVOKABLE void resumeDownload(const QString &jobId);
+    Q_INVOKABLE void retryDownload(const QString &jobId);
+    Q_INVOKABLE void deleteDownload(const QString &jobId, bool deleteFiles);
     Q_INVOKABLE void startLibraryScan();
     Q_INVOKABLE void rematchReview();
     Q_INVOKABLE void ignoreFile(qint64 fileId, bool ignored);
@@ -63,6 +72,9 @@ public:
         const QString &username,
         const QString &token,
         const QString &libraryRoots,
+        const QString &qbittorrentBaseUrl,
+        const QString &qbittorrentUsername,
+        const QString &qbittorrentPassword,
         bool autoPlayNext,
         bool bangumiWriteback
     );
@@ -81,6 +93,7 @@ signals:
     void subjectChanged();
     void libraryChanged();
     void settingsChanged();
+    void downloadsChanged();
 
 private:
     using Handler = std::function<void(const QVariant &)>;
@@ -92,6 +105,7 @@ private:
 
     QNetworkAccessManager *m_network;
     QTimer m_scanTimer;
+    QTimer m_downloadTimer;
     QUrl m_baseUrl;
     int m_pending{0};
     QString m_error;
@@ -106,6 +120,7 @@ private:
     QVariantMap m_review;
     QVariantMap m_scanStatus;
     QVariantMap m_settings;
+    QVariantList m_downloads;
 };
 
 } // namespace autoanime

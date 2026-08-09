@@ -27,6 +27,8 @@ QmlBackend::QmlBackend(QUrl baseUrl, QObject *parent)
             }
         });
     });
+    m_downloadTimer.setInterval(1500);
+    connect(&m_downloadTimer, &QTimer::timeout, this, &QmlBackend::loadDownloads);
 }
 
 QUrl QmlBackend::url(const QString &path) const
@@ -134,6 +136,7 @@ void QmlBackend::loadSubject(qint64 subjectId)
         m_episodes = value.toList();
         emit subjectChanged();
     });
+    loadDownloads();
 }
 
 void QmlBackend::loadLibrary()
@@ -164,6 +167,71 @@ void QmlBackend::loadSettings()
     send("GET", QStringLiteral("api/settings"), {}, [this](const QVariant &value) {
         m_settings = value.toMap();
         emit settingsChanged();
+    });
+}
+
+void QmlBackend::loadDownloads()
+{
+    send("GET", QStringLiteral("api/downloads"), {}, [this](const QVariant &value) {
+        m_downloads = value.toList();
+        emit downloadsChanged();
+    });
+}
+
+void QmlBackend::setDownloadPolling(bool enabled)
+{
+    if (enabled) {
+        loadDownloads();
+        m_downloadTimer.start();
+    } else {
+        m_downloadTimer.stop();
+    }
+}
+
+void QmlBackend::addDownload(qint64 episodeId, const QString &magnet)
+{
+    send("POST", QStringLiteral("api/downloads"), {
+        {QStringLiteral("episode_id"), episodeId},
+        {QStringLiteral("magnet"), magnet.trimmed()},
+    }, [this](const QVariant &) {
+        setNotice(QStringLiteral("下载任务已创建"));
+        loadDownloads();
+        if (!m_subject.isEmpty()) {
+            loadSubject(m_subject.value(QStringLiteral("id")).toLongLong());
+        }
+    });
+}
+
+void QmlBackend::pauseDownload(const QString &jobId)
+{
+    send("POST", QStringLiteral("api/downloads/%1/pause").arg(jobId), {}, [this](const QVariant &) {
+        setNotice(QStringLiteral("下载已暂停"));
+        loadDownloads();
+    });
+}
+
+void QmlBackend::resumeDownload(const QString &jobId)
+{
+    send("POST", QStringLiteral("api/downloads/%1/resume").arg(jobId), {}, [this](const QVariant &) {
+        setNotice(QStringLiteral("下载已恢复"));
+        loadDownloads();
+    });
+}
+
+void QmlBackend::retryDownload(const QString &jobId)
+{
+    send("POST", QStringLiteral("api/downloads/%1/retry").arg(jobId), {}, [this](const QVariant &) {
+        setNotice(QStringLiteral("下载任务已重试"));
+        loadDownloads();
+    });
+}
+
+void QmlBackend::deleteDownload(const QString &jobId, bool deleteFiles)
+{
+    const QString suffix = deleteFiles ? QStringLiteral("?delete_files=true") : QString{};
+    send("DELETE", QStringLiteral("api/downloads/%1").arg(jobId) + suffix, {}, [this](const QVariant &) {
+        setNotice(QStringLiteral("qBittorrent 任务已删除"));
+        loadDownloads();
     });
 }
 
@@ -240,6 +308,9 @@ void QmlBackend::saveSettings(
     const QString &username,
     const QString &token,
     const QString &libraryRoots,
+    const QString &qbittorrentBaseUrl,
+    const QString &qbittorrentUsername,
+    const QString &qbittorrentPassword,
     bool autoPlayNext,
     bool bangumiWriteback
 )
@@ -253,11 +324,18 @@ void QmlBackend::saveSettings(
     QJsonObject body{
         {QStringLiteral("bangumi_username"), username.trimmed()},
         {QStringLiteral("library_roots"), roots},
+        {QStringLiteral("qbittorrent_base_url"), qbittorrentBaseUrl.trimmed()},
         {QStringLiteral("auto_play_next"), autoPlayNext},
         {QStringLiteral("bangumi_writeback_enabled"), bangumiWriteback},
     };
     if (!token.isEmpty()) {
         body.insert(QStringLiteral("bangumi_access_token"), token);
+    }
+    if (!qbittorrentPassword.isEmpty()) {
+        body.insert(QStringLiteral("qbittorrent_password"), qbittorrentPassword);
+    }
+    if (!qbittorrentUsername.trimmed().isEmpty()) {
+        body.insert(QStringLiteral("qbittorrent_username"), qbittorrentUsername.trimmed());
     }
     send("PATCH", QStringLiteral("api/settings"), body, [this](const QVariant &value) {
         m_settings = value.toMap();

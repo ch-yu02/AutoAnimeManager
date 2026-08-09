@@ -8,6 +8,7 @@ from typing import Iterator
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import Engine, create_engine, text
+from sqlalchemy.pool import NullPool
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.config import get_settings
@@ -20,6 +21,8 @@ def get_engine() -> Engine:
     return create_engine(
         settings.database.url,
         connect_args={"check_same_thread": False},
+        # 下载导入在线程池运行；SQLite 连接不跨线程复用可避免阻塞并简化恢复。
+        poolclass=NullPool,
     )
 
 

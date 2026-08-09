@@ -1,6 +1,6 @@
 # AutoAnime
 
-单用户、本地运行的 Bangumi 自动追番与媒体管理器。当前已完成 Bangumi 数据层、本地媒体映射、观看状态业务层，以及 Qt/libmpv Desktop 原生播放闭环。旧网页 HLS 和独立 mpv 子进程播放架构已删除。
+单用户、本地运行的 Bangumi 自动追番与媒体管理器。当前已完成 Bangumi 数据层、本地媒体映射、Qt/libmpv 原生播放闭环，以及 magnet → qBittorrent → 媒体库原地登记 → 播放的手动下载闭环。
 
 ## 环境要求
 
@@ -8,7 +8,7 @@
 - Node.js 22+ 与 npm 10+（仅维护可选的网页调试工具时需要）
 - FFmpeg/`ffprobe`（仅用于媒体探测）
 - Qt Desktop 需要 CMake、Qt 6 Base/Declarative/Quick、对应 QML 运行模块和 `libmpv-dev`，详见 `desktop/README.md`
-- 后续下载阶段需要独立安装 qBittorrent
+- qBittorrent 4.1+ 或 5.x（启用 WebUI API，保持独立运行）
 
 ## 首次启动
 
@@ -21,7 +21,7 @@ python -m scripts.migrate
 python scripts/dev.py
 ```
 
-`python scripts/dev.py` 会自动增量构建 Desktop、启动 FastAPI 并打开 Qt Quick 客户端；关闭窗口或按一次 `Ctrl+C` 会统一停止全部进程。首次构建时间较长，后续为增量构建。
+`python scripts/dev.py` 会自动增量构建 Desktop、升级数据库、启动 FastAPI 并打开 Qt Quick 客户端；关闭窗口或按一次 `Ctrl+C` 会统一停止全部进程。首次构建时间较长，后续为增量构建。
 启动器会自动优先使用仓库内 `.venv`，因此激活虚拟环境后使用 `python` 或直接使用系统 `python3` 均可。
 
 可选启动参数：
@@ -51,7 +51,7 @@ export AUTOANIME_APP__PORT=9000
 export AUTOANIME_BANGUMI__ACCESS_TOKEN=your-token
 ```
 
-未提供外部组件凭证时后端仍可启动，但 `/api/health` 和状态页会明确列出缺少项。媒体根目录在 `storage.library_roots` 中配置；扫描会递归读取允许的视频扩展名，并跳过下载与隔离目录。`player` 可配置进度保存周期、已看阈值、自动下一集和 Bangumi 回写；自动下一集与回写默认关闭。不要提交 `config.yaml` 或 `.env`。
+未提供外部组件凭证时后端仍可启动，但 `/api/health` 和状态页会明确列出缺少项。媒体根目录在 `storage.library_roots` 中配置；扫描会递归读取允许的视频扩展名，并跳过隔离目录。qBittorrent 任务直接保存到第一个媒体根目录的 Subject 文件夹，不需要单独配置下载目录。不要提交 `config.yaml` 或 `.env`。
 
 ## 常用命令
 
@@ -122,11 +122,19 @@ GET  /api/playback/continue
 GET  /api/subjects/{id}/next-unwatched
 POST /api/episodes/{id}/mark-watched
 POST /api/episodes/{id}/mark-unwatched
+GET  /api/downloads
+POST /api/downloads
+POST /api/downloads/{id}/pause
+POST /api/downloads/{id}/resume
+POST /api/downloads/{id}/retry
+DELETE /api/downloads/{id}
 ```
 
 `POST /api/bangumi/sync` 会快速返回任务标识；通过状态接口查看成功、部分失败或失败及脱敏错误摘要。同步完整保存想看、在看和看过收藏，使用 Bangumi ID 幂等更新 Subject、Episode 和关系，外部 API 失败不会清空已有数据。Bangumi Token 和 qBittorrent 密码不会出现在 API 响应或正常错误摘要中。
 
 媒体扫描以路径、大小和修改时间判断未变化文件，只对新增或变化文件执行部分哈希、可选 `ffprobe` 和文件名解析；仅在疑似重复时计算完整哈希。低置信度、批量文件、manifest 冲突和多主文件进入审核队列。人工关联默认锁定，并写入同目录 `manifest.json`，后续扫描不会覆盖。
+
+在 Subject 的 Episode 行点击“下载”并粘贴完整 magnet、40 位十六进制或 32 位 Base32 BTIH 特征码即可创建任务。任务以 `autoanime` 分类、`bgm-{subject_id}` 和 `job-{job_id}` 标签提交；程序重启后会继续同步未完成任务。视频直接下载到第一媒体库目录下的 Subject 文件夹，完成后原地使用 `DOWNLOAD_JOB` 关联并写入 manifest；合集、文件数量不符或疑似单文件多集会原地进入 Library Review。成功导入不会自动清理任务。手动“仅删除下载任务”会保留媒体文件，“删除任务及本地文件”会同时删除媒体文件；两种操作都会删除 qBittorrent 任务和客户端记录，失败任务遵循相同规则。
 
 Qt Desktop 通过 libmpv 直接播放本地媒体，不进行网页转码；支持内封/外挂字幕、音轨切换、完整时间轴跳转和续播。播放、暂停、跳转、停止及正常结束时会保存进度。有效播放不足 60 秒不会覆盖旧进度；播放达到 90%、剩余不超过 5 分钟或正常播完时自动标记已看，手动已看/未看优先于自动判断。下一集仅在同一 Subject 的 MAIN 章节中选择已有本地文件的后续最小集数，文件删除后观看历史仍保留。
 

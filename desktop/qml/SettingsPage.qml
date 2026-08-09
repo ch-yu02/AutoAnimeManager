@@ -25,11 +25,22 @@ Page {
                 Button { text: "手动同步"; onClicked: backend.startBangumiSync() }
             }
             Rectangle { Layout.fillWidth: true; height: 1; color: "#283445" }
+            Label { text: "qBittorrent"; color: "#f2f5f8"; font.pixelSize: 20; font.weight: Font.DemiBold }
+            TextField { id: qbBaseUrl; Layout.fillWidth: true; placeholderText: "WebUI 地址，例如 http://127.0.0.1:8080" }
+            TextField { id: qbUsername; Layout.fillWidth: true; placeholderText: "WebUI 用户名" }
+            TextField { id: qbPassword; Layout.fillWidth: true; placeholderText: "WebUI 密码（留空表示保留）"; echoMode: TextInput.Password }
+            Label {
+                Layout.fillWidth: true
+                text: "下载内容直接保存到第一个媒体目录下的 Subject 文件夹，不创建副本或 hardlink。"
+                color: "#93a1b2"
+                wrapMode: Text.Wrap
+            }
+            Button { text: "测试 qBittorrent"; onClicked: backend.testConnection("qbittorrent") }
+            Rectangle { Layout.fillWidth: true; height: 1; color: "#283445" }
             Label { text: "媒体目录"; color: "#f2f5f8"; font.pixelSize: 20; font.weight: Font.DemiBold }
             TextArea { id: roots; Layout.fillWidth: true; Layout.preferredHeight: 100; placeholderText: "每行一个扫描目录"; wrapMode: TextEdit.NoWrap }
             RowLayout {
                 Button { text: "测试 ffprobe"; onClicked: backend.testConnection("ffprobe") }
-                Button { text: "测试 qBittorrent"; onClicked: backend.testConnection("qbittorrent") }
             }
             Rectangle { Layout.fillWidth: true; height: 1; color: "#283445" }
             Label { text: "播放"; color: "#f2f5f8"; font.pixelSize: 20; font.weight: Font.DemiBold }
@@ -39,9 +50,12 @@ Page {
                 text: "保存设置"
                 highlighted: true
                 enabled: !backend.busy
-                onClicked: backend.saveSettings(username.text, token.text, roots.text, autoPlay.checked, writeback.checked)
+                onClicked: backend.saveSettings(
+                    username.text, token.text, roots.text,
+                    qbBaseUrl.text, qbUsername.text, qbPassword.text,
+                    autoPlay.checked, writeback.checked
+                )
             }
-            Label { text: "下载、自动化与保留策略将在对应阶段开放；当前客户端只展示后端已提供的配置能力。"; color: "#93a1b2"; wrapMode: Text.Wrap; Layout.fillWidth: true }
             Item { Layout.preferredHeight: 24 }
         }
     }
@@ -52,11 +66,15 @@ Page {
             const bangumi = backend.settings.bangumi || {}
             const storage = backend.settings.storage || {}
             const playerSettings = backend.settings.player || {}
+            const qbittorrent = backend.settings.qbittorrent || {}
             username.text = bangumi.username || ""
             const values = storage.library_roots || (storage.library_path ? [storage.library_path] : ["data/library"])
             roots.text = values.join("\n")
             autoPlay.checked = playerSettings.auto_play_next || false
             writeback.checked = playerSettings.bangumi_writeback_enabled || false
+            qbBaseUrl.text = qbittorrent.base_url || "http://127.0.0.1:8080"
+            qbUsername.text = qbittorrent.username || ""
+            qbPassword.text = ""
             token.text = ""
         }
     }

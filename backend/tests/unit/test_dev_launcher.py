@@ -10,6 +10,7 @@ SPEC.loader.exec_module(DEV)
 desktop_command = DEV.desktop_command
 parse_args = DEV.parse_args
 project_python = DEV.project_python
+migrate_database = DEV.migrate_database
 
 
 def test_desktop_command_defaults_to_native_qml_client() -> None:
@@ -36,3 +37,15 @@ def test_project_python_prefers_repository_virtualenv(tmp_path: Path) -> None:
     interpreter.touch()
 
     assert project_python(tmp_path) == str(interpreter)
+
+
+def test_migrate_database_uses_repository_python(tmp_path: Path, monkeypatch) -> None:
+    interpreter = tmp_path / ".venv" / "bin" / "python"
+    interpreter.parent.mkdir(parents=True)
+    interpreter.touch()
+    calls = []
+    monkeypatch.setattr(DEV.subprocess, "run", lambda *args, **kwargs: calls.append((args, kwargs)))
+
+    migrate_database(tmp_path)
+
+    assert calls == [(([str(interpreter), "-m", "scripts.migrate"],), {"cwd": tmp_path, "check": True})]

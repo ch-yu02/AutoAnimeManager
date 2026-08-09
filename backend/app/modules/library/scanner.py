@@ -31,7 +31,7 @@ def _inside(path: Path, directory: Path) -> bool:
         return False
 
 
-def _partial_hash(path: Path, chunk_size: int) -> str:
+def partial_hash(path: Path, chunk_size: int) -> str:
     digest = hashlib.sha256()
     size = path.stat().st_size
     with path.open("rb") as stream:
@@ -109,7 +109,7 @@ class LibraryScanner:
 
     def _discover(self, settings: AppSettings) -> list[Path]:
         roots = [root.expanduser().resolve() for root in settings.storage.effective_library_roots()]
-        excluded = [settings.storage.download_path.expanduser().resolve(), settings.storage.quarantine_path.expanduser().resolve()]
+        excluded = [settings.storage.quarantine_path.expanduser().resolve()]
         extensions = set(settings.storage.video_extensions)
         with session_scope() as session:
             ignored_paths = set(session.scalars(select(IgnoredMediaPath.path)))
@@ -206,7 +206,7 @@ class LibraryScanner:
                     if media is None:
                         media = next((item for item in existing if item.path not in disk_paths and item.device_id == stat.st_dev and item.inode == stat.st_ino), None)
                         if media is None:
-                            precomputed_partial = _partial_hash(path, settings.storage.partial_hash_bytes)
+                            precomputed_partial = partial_hash(path, settings.storage.partial_hash_bytes)
                             media = next((
                                 item for item in existing
                                 if item.path not in disk_paths
@@ -250,7 +250,7 @@ class LibraryScanner:
                     media.mtime_ns = stat.st_mtime_ns
                     media.device_id = stat.st_dev
                     media.inode = stat.st_ino
-                    media.partial_hash = precomputed_partial or _partial_hash(path, settings.storage.partial_hash_bytes)
+                    media.partial_hash = precomputed_partial or partial_hash(path, settings.storage.partial_hash_bytes)
                     collision = session.scalar(
                         select(MediaFile).where(
                             MediaFile.id != media.id,

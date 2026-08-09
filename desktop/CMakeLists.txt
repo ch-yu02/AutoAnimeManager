@@ -61,6 +61,7 @@ qt_add_qml_module(autoanime-desktop
         qml/SubjectDetailPage.qml
         qml/PlayerPage.qml
         qml/LibraryPage.qml
+        qml/DownloadsPage.qml
         qml/SettingsPage.qml
         qml/MediaCard.qml
 )

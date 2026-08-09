@@ -7,6 +7,14 @@ Page {
     required property int subjectId
     signal back()
     signal playEpisode(int id, bool fromStart, var episodes, string title)
+    property var downloadEpisode: null
+    function jobForEpisode(episodeId) {
+        for (let i = 0; i < backend.downloads.length; ++i) {
+            if ((backend.downloads[i].episode_ids || []).indexOf(episodeId) >= 0)
+                return backend.downloads[i]
+        }
+        return null
+    }
     background: Rectangle { color: "#0b1018" }
 
     ScrollView {
@@ -60,6 +68,7 @@ Page {
                 model: backend.episodes
                 delegate: Rectangle {
                     required property var modelData
+                    property var downloadJob: root.jobForEpisode(modelData.id)
                     Layout.fillWidth: true
                     Layout.preferredHeight: 68
                     radius: 8
@@ -74,6 +83,21 @@ Page {
                         }
                         ProgressBar { Layout.preferredWidth: 110; visible: modelData.playback !== null && modelData.playback !== undefined; value: modelData.playback ? modelData.playback.progress_ratio : 0 }
                         Button { text: modelData.watched ? "设为未看" : "设为已看"; flat: true; onClicked: backend.markWatched(modelData.id, !modelData.watched) }
+                        Label {
+                            visible: downloadJob !== null && downloadJob.state !== "IMPORTED"
+                            text: downloadJob ? downloadJob.state + " " + Math.round(downloadJob.progress * 100) + "%" : ""
+                            color: downloadJob && downloadJob.state === "FAILED" ? "#ff9b9b" : "#72d5b4"
+                            font.pixelSize: 12
+                        }
+                        Button {
+                            text: "下载"
+                            visible: modelData.local_status !== "READY" && downloadJob === null
+                            onClicked: {
+                                root.downloadEpisode = modelData
+                                magnetInput.text = ""
+                                downloadDialog.open()
+                            }
+                        }
                         Button { text: modelData.playback && modelData.playback.position_seconds > 0 ? "继续" : "播放"; enabled: modelData.local_status === "READY"; onClicked: root.playEpisode(modelData.id, false, backend.episodes, backend.subject.display_name) }
                         Button { text: "从头"; enabled: modelData.local_status === "READY"; flat: true; onClicked: root.playEpisode(modelData.id, true, backend.episodes, backend.subject.display_name) }
                     }
@@ -83,6 +107,29 @@ Page {
             Item { Layout.preferredHeight: 24 }
         }
     }
+    Dialog {
+        id: downloadDialog
+        anchors.centerIn: parent
+        width: Math.min(680, root.width - 60)
+        title: root.downloadEpisode ? "下载 Episode " + root.downloadEpisode.display_number : "新建下载"
+        modal: true
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onAccepted: {
+            if (root.downloadEpisode) backend.addDownload(root.downloadEpisode.id, magnetInput.text)
+        }
+        contentItem: ColumnLayout {
+            spacing: 10
+            Label { Layout.fillWidth: true; text: "粘贴完整 magnet 或 BTIH 特征码，系统会直接下载到媒体库并关联此 Episode。"; wrapMode: Text.Wrap }
+            TextArea {
+                id: magnetInput
+                Layout.fillWidth: true
+                Layout.preferredHeight: 110
+                placeholderText: "magnet:?xt=urn:btih:… 或 40 位特征码"
+                wrapMode: TextEdit.WrapAnywhere
+            }
+        }
+    }
     BusyIndicator { anchors.centerIn: parent; running: backend.busy && backend.subject.id !== subjectId }
-    Component.onCompleted: backend.loadSubject(subjectId)
+    Component.onCompleted: { backend.loadSubject(subjectId); backend.setDownloadPolling(true) }
+    onVisibleChanged: backend.setDownloadPolling(visible)
 }
