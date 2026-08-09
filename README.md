@@ -5,10 +5,9 @@
 ## 环境要求
 
 - Python 3.12+
-- Node.js 22+
-- npm 10+
+- Node.js 22+ 与 npm 10+（仅维护可选的网页调试工具时需要）
 - FFmpeg/`ffprobe`（仅用于媒体探测）
-- Qt Desktop 需要 CMake、Qt 6 Base/OpenGL/WebEngine/WebChannel/Network 开发包和 `libmpv-dev`
+- Qt Desktop 需要 CMake、Qt 6 Base/Declarative/Quick、对应 QML 运行模块和 `libmpv-dev`，详见 `desktop/README.md`
 - 后续下载阶段需要独立安装 qBittorrent
 
 ## 首次启动
@@ -19,11 +18,11 @@ source .venv/bin/activate
 pip install -e '.[dev]'
 cp config.example.yaml config.yaml
 python -m scripts.migrate
-npm install
 python scripts/dev.py
 ```
 
-`python scripts/dev.py` 会自动增量构建 Desktop、启动 FastAPI 和 Vite，并打开 Qt Desktop；关闭桌面窗口或按一次 `Ctrl+C` 会统一停止所有进程，不需要分别打开三个终端。首次构建时间较长，后续为增量构建。
+`python scripts/dev.py` 会自动增量构建 Desktop、启动 FastAPI 并打开 Qt Quick 客户端；关闭窗口或按一次 `Ctrl+C` 会统一停止全部进程。首次构建时间较长，后续为增量构建。
+启动器会自动优先使用仓库内 `.venv`，因此激活虚拟环境后使用 `python` 或直接使用系统 `python3` 均可。
 
 可选启动参数：
 
@@ -31,14 +30,11 @@ python scripts/dev.py
 # 已确认 Desktop 无需重新构建
 python scripts/dev.py --no-build
 
-# 打开 Chromium DevTools
-python scripts/dev.py --devtools
-
-# 使用独立原生播放窗口
-python scripts/dev.py --dedicated-player
+# 直接播放指定 Episode
+python scripts/dev.py --play-episode 968
 ```
 
-FastAPI 文档位于 `http://127.0.0.1:8765/docs`。普通浏览器可访问 `http://127.0.0.1:5173` 管理数据，但原生播放需要 Qt Desktop。
+FastAPI 文档位于 `http://127.0.0.1:8765/docs`。Vue 前端只保留为可选的后端调试工具，正式客户端不再启动或依赖它。
 
 Windows PowerShell 激活虚拟环境时使用：
 
@@ -60,7 +56,7 @@ export AUTOANIME_BANGUMI__ACCESS_TOKEN=your-token
 ## 常用命令
 
 ```bash
-# 完整开发环境：自动构建并启动后端、前端和 Qt Desktop
+# 完整开发环境：自动构建并启动后端与 Qt Quick Desktop
 python scripts/dev.py
 
 # 后端开发服务器
@@ -85,10 +81,7 @@ cmake -S desktop -B desktop/build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build desktop/build
 ctest --test-dir desktop/build --output-on-failure
 
-# Qt WebEngine Desktop Shell（开发模式加载 Vite）
-desktop/build/autoanime-desktop --dev --devtools
-
-# 生产模式：先构建 frontend/dist 并启动 FastAPI，再运行
+# FastAPI 已启动时单独运行原生客户端
 desktop/build/autoanime-desktop
 
 # SQLite 在线备份
@@ -115,6 +108,7 @@ GET  /api/subjects/{id}/episodes
 POST /api/library/scan
 GET  /api/library/scan/status
 GET  /api/library/files
+GET  /api/library/recent
 GET  /api/library/review
 POST /api/library/files/{id}/match
 DELETE /api/library/files/{id}/match
@@ -136,4 +130,4 @@ POST /api/episodes/{id}/mark-unwatched
 
 Qt Desktop 通过 libmpv 直接播放本地媒体，不进行网页转码；支持内封/外挂字幕、音轨切换、完整时间轴跳转和续播。播放、暂停、跳转、停止及正常结束时会保存进度。有效播放不足 60 秒不会覆盖旧进度；播放达到 90%、剩余不超过 5 分钟或正常播完时自动标记已看，手动已看/未看优先于自动判断。下一集仅在同一 Subject 的 MAIN 章节中选择已有本地文件的后续最小集数，文件删除后观看历史仍保留。
 
-`desktop/` 包含 Qt 6 + `QOpenGLWidget` + libmpv Render API 验证程序及正式的 `autoanime-desktop`：QWebEngine 加载 Vue，QWebChannel 提供受限 NativeBridge，Qt PlayerController 通过 FastAPI 播放 Session API 获取媒体路径并上报进度；`NativePlayer` 通过 DOM 矩形同步，让原生视频 Surface 视觉上位于 Vue 页面内部。WebEngine/WebChannel 是 Desktop Shell 的必要构建依赖，缺少时 CMake 会跳过 Desktop Shell 并保留 libmpv 探针。
+`desktop/` 包含正式的 `autoanime-desktop`。客户端由 Qt Quick/QML 构成，视频通过 libmpv Render API 成为真正的 QML Item；生产构建不依赖 Qt Widgets、QWebEngine、QWebChannel 或 DOM/native geometry overlay。

@@ -9,7 +9,7 @@ set(CMAKE_AUTOMOC ON)
 
 include(CTest)
 find_package(PkgConfig REQUIRED)
-find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Widgets OpenGLWidgets)
+find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Network Qml Quick QuickControls2)
 pkg_check_modules(MPV QUIET IMPORTED_TARGET mpv)
 if(TARGET PkgConfig::MPV)
     set(AUTOANIME_MPV_TARGET PkgConfig::MPV)
@@ -27,8 +27,6 @@ endif()
 add_library(autoanime_player STATIC
     src/player/MpvCore.cpp
     src/player/MpvCore.h
-    src/player/MpvRenderWidget.cpp
-    src/player/MpvRenderWidget.h
     src/player/PlayerState.h
 )
 target_include_directories(autoanime_player PUBLIC src)
@@ -36,41 +34,44 @@ target_link_libraries(autoanime_player
     PUBLIC
         Qt6::Core
         Qt6::Gui
-        Qt6::Widgets
-        Qt6::OpenGLWidgets
         ${AUTOANIME_MPV_TARGET}
 )
 target_compile_options(autoanime_player PRIVATE -Wall -Wextra -Wpedantic)
 
-add_executable(autoanime-player-probe
-    src/main.cpp
-    src/ui/PlayerWindow.cpp
-    src/ui/PlayerWindow.h
-)
-target_link_libraries(autoanime-player-probe PRIVATE autoanime_player)
-
-find_package(Qt6 6.4 REQUIRED COMPONENTS Network WebChannel WebEngineWidgets)
-add_executable(autoanime-desktop
-    src/main_desktop.cpp
+qt_add_executable(autoanime-desktop
+    src/main_qml.cpp
     src/backend/BackendClient.cpp
     src/backend/BackendClient.h
-    src/bridge/NativeBridge.cpp
-    src/bridge/NativeBridge.h
     src/player/PlayerController.cpp
     src/player/PlayerController.h
-    src/ui/AppWebPage.cpp
-    src/ui/AppWebPage.h
-    src/ui/DesktopWindow.cpp
-    src/ui/DesktopWindow.h
-    src/ui/PlayerSurfaceGeometry.h
+    src/player/MpvVideoItem.cpp
+    src/player/MpvVideoItem.h
+    src/qml/QmlBackend.cpp
+    src/qml/QmlBackend.h
+    src/qml/QmlPlayer.cpp
+    src/qml/QmlPlayer.h
+)
+qt_add_qml_module(autoanime-desktop
+    URI AutoAnime
+    VERSION 1.0
+    QML_FILES
+        qml/Main.qml
+        qml/HomePage.qml
+        qml/SubjectsPage.qml
+        qml/SubjectDetailPage.qml
+        qml/PlayerPage.qml
+        qml/LibraryPage.qml
+        qml/SettingsPage.qml
+        qml/MediaCard.qml
 )
 target_include_directories(autoanime-desktop PRIVATE src)
 target_link_libraries(autoanime-desktop
     PRIVATE
         autoanime_player
         Qt6::Network
-        Qt6::WebChannel
-        Qt6::WebEngineWidgets
+        Qt6::Qml
+        Qt6::Quick
+        Qt6::QuickControls2
 )
 target_compile_options(autoanime-desktop PRIVATE -Wall -Wextra -Wpedantic)
 

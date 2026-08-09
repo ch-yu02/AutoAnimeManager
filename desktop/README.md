@@ -1,68 +1,39 @@
-# Stage 3B/3C/3D/3E Qt Desktop
+# Qt Quick 原生客户端
 
-该目录包含独立的 3B 播放探针，以及 3C/3D/3E 正式 Desktop Shell。3B 探针验证 Qt 6、`QOpenGLWidget` 与 libmpv Render API；`autoanime-desktop` 使用 QWebEngine 加载 Vue，通过 QWebChannel 调用受限 NativeBridge，并由 Qt PlayerController 连接 FastAPI 播放 Session API。3E 让原生 `QOpenGLWidget` 按 Vue `NativePlayerSlot` 的 DOM 矩形覆盖到 WebEngine 页面内。
+`autoanime-desktop` 是最终桌面客户端：Qt Quick/QML 负责界面，`BackendClient` 调用 FastAPI，`PlayerController` 维护播放 Session，libmpv 通过 Render API 直接渲染为 QML Item。生产路径不依赖 Vue、QWebEngine、QWebChannel 或 DOM geometry overlay。
 
-## 依赖
-
-Ubuntu 24.04：
+## Ubuntu 24.04 依赖
 
 ```bash
-sudo apt install cmake ninja-build g++ pkg-config qt6-base-dev qt6-webengine-dev qt6-webchannel-dev libmpv-dev
+sudo apt install cmake ninja-build g++ pkg-config qt6-base-dev qt6-declarative-dev \
+  libmpv-dev qml6-module-qtqml qml6-module-qtqml-workerscript \
+  qml6-module-qtquick qml6-module-qtquick-window qml6-module-qtquick-layouts \
+  qml6-module-qtquick-templates qml6-module-qtquick-controls qml6-module-qtquick-dialogs
 ```
 
-## 构建与测试
+MpvQt 1.2 要求 Qt 6.5，而 Ubuntu 24.04 当前提供 Qt 6.4，因此本项目复用其 Render API 生命周期设计，不增加 MpvQt 二进制依赖。
+
+## 构建与启动
 
 ```bash
 cmake -S desktop -B desktop/build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build desktop/build
 ctest --test-dir desktop/build --output-on-failure
-```
 
-播放一个或多个文件：
-
-```bash
-desktop/build/autoanime-player-probe episode1.mkv episode2.mkv episode3.mkv
-```
-
-自动 smoke 验证（需要可用的图形会话，至少三个媒体文件；最后一个建议使用 15 秒以内的短视频以自然验证 EOF）：
-
-```bash
-desktop/build/autoanime-player-probe --smoke-test --subtitle episode1.chs.ass episode1.mkv episode2.mkv episode3.mkv
-```
-
-程序支持打开文件、暂停、绝对/相对 seek、音量、静音、内封音轨/字幕切换、加载外挂字幕、队列切换、全屏和播放器销毁重建。快捷键：`Space` 暂停，方向键 seek/音量，`F` 全屏，`M` 静音，`Esc` 退出全屏。
-
-## Stage 3C/3D Desktop Shell
-
-日常开发推荐从仓库根目录使用单命令启动：
-
-```bash
+# 推荐：统一启动 FastAPI 与客户端
 python scripts/dev.py
-```
 
-该命令会完成 Desktop 增量构建，启动 FastAPI、Vite 和 Qt Desktop，并统一管理退出。以下命令仅用于单独调试 Desktop：
-
-```bash
-# 开发模式：要求 Vite 5173 与 FastAPI 8765 已启动
-desktop/build/autoanime-desktop --dev
-
-# 可选 Chromium DevTools
-desktop/build/autoanime-desktop --dev --devtools
-
-# 生产模式：FastAPI 已提供 frontend/dist
+# FastAPI 已运行时单独启动
 desktop/build/autoanime-desktop
 
-# WebEngine/OpenGL 层叠异常时使用独立原生播放窗口
-desktop/build/autoanime-desktop --dedicated-player
+# 直接播放指定 Episode，用于播放基线与回归
+desktop/build/autoanime-desktop --play-episode 968
 ```
 
-Desktop 只允许 `localhost`/`127.0.0.1` 的应用页面和 `qrc` 资源导航；外部链接交给系统浏览器。窗口 geometry 保存在 `QSettings`。Vue 在普通 Chrome 中检测不到 NativeBridge 时仍可浏览和管理数据，播放提示使用 Desktop。
-
-原生播放链路为：
+## 播放链路
 
 ```text
-NativePlayer.vue
-→ QWebChannel NativeBridge
+PlayerPage / MpvVideoItem
 → PlayerController
 → BackendClient /api/playback/sessions
 → libmpv Render API
@@ -70,34 +41,19 @@ NativePlayer.vue
 → PlaybackStateService
 ```
 
-后端 Session API 不启动 MPV，只负责验证可播放 Episode、选择 MediaFile、返回本地路径和持久化进度。Qt 在停止、切换文件和 EOF 时等待最终进度保存成功后再关闭 session，程序关闭时也会在限定时间内刷新进度；播放达到 90%、超过 60 秒或 EOF 时由现有 `PlaybackStateService` 计算已看状态。EOF 响应复用 `PlaybackStateService.next_playable()` 返回严格相邻且 READY 的下一 MAIN Episode，Vue 只按该结果决定是否自动连播，不会自行跳集。
+播放器支持暂停、精确 seek、音量/静音、速度、内封音轨与字幕、外挂字幕、全屏、快捷键、前后集、EOF 自动下一集和连续切换。后端仍负责 watched、续播位置和 next Episode 业务判断。
 
-### Stage 3E Native Video Surface
+## 人工验收
 
-`NativePlayer.vue` 暴露 `native-player-slot`，通过 `ResizeObserver`、捕获阶段 `scroll`、窗口/Visual Viewport resize 和 route unmount 持续发送：
-
-```text
-getBoundingClientRect()
-→ x / y / width / height / devicePixelRatio / visible
-→ QWebChannel NativeBridge.setPlayerRect()
-→ DesktopWindow 覆盖定位 MpvRenderWidget
-```
-
-Qt 按 WebEngine 页面 viewport 的坐标定位原生 Surface，并用 Web 页面 DPR 与 Qt DPR 的比例处理缩放；slot 离开视口、隐藏或卸载时 Surface 会立即隐藏。控制条仍位于视频 slot 下方，避免在两个独立渲染 Surface 之间实现 HTML 浮层。
-
-Qt 在整页导航、刷新或 WebEngine 渲染进程退出时主动停止播放器并清除 Surface，不依赖 Vue 卸载回调。跨屏 DPI 变化会触发 Vue 重新上报 DOM Rect。若当前平台的 WebEngine/OpenGL 层叠不稳定，可使用 `--dedicated-player` 切换到独立原生播放窗口；播放、进度和 Vue 控制链路保持不变。
-
-## 人工验收矩阵
-
-分别用媒体库中的 H.264/HEVC、MKV/MP4、ASS 内封/外挂、多音轨和多字幕样本检查：
-
-1. 视频直接播放且没有独立 mpv 窗口或 FFmpeg 进程；
-2. seek、暂停、音量、静音和轨道选择立即生效；
-3. resize 与 fullscreen 过程中画面持续正常；
-4. 队列连续切换至少三集；
-5. 点击“重建播放器”后仍可播放；
-6. 播放中直接关闭窗口，程序无 crash、无遗留进程。
+1. 首页加载继续观看与正在追，切换五种收藏标签和“只显示本地已匹配”。
+2. 进入 Subject，播放 READY Episode；视频应是窗口内真正的 QML Item，控制条覆盖画面且 resize/fullscreen 不错位。
+3. 检查 H.264/HEVC、24/30/60 fps、内封/外挂字幕、音轨、速度、前后集与 EOF。
+4. 播放中退出，重新打开同一 Episode，应从保存位置继续；从头播放应从 0 开始。
+5. Library Review 执行重新匹配、人工关联、重新解析和忽略；Settings 可保存现有后端支持的配置。
 
 ## 复用来源
 
-Render API 初始化、OpenGL proc-address、FBO 渲染、wakeup/update callback 和 `LC_NUMERIC=C` 的实现基于 `mpv-player/mpv-examples` 中的 `libmpv/qt_opengl` 与 `libmpv/qml` 官方示例。官方示例声明其 `libmpv/` 代码可按公共领域使用；本实现按项目边界拆分了播放器核心与渲染生命周期，并增加了控制、轨道和连续切换验证。
+- 现有 `MpvCore`、`PlayerController`、`BackendClient` 与 FastAPI Playback Session API；
+- KDE MpvQt 的 `QQuickFramebufferObject`、渲染线程销毁 `mpv_render_context`、update callback 模式；
+- mpv 官方 `libmpv/qml` 示例的 OpenGL proc-address、FBO Render API 和 `LC_NUMERIC=C`；
+- KDE Haruna 的浮动播放控制条、双击全屏、自动隐藏 controls、轨道菜单与外挂字幕交互模式。

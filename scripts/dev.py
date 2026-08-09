@@ -12,28 +12,32 @@ from urllib.request import urlopen
 
 
 BACKEND_URL = "http://127.0.0.1:8765"
-FRONTEND_URL = "http://127.0.0.1:5173"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="启动 AutoAnime 完整开发环境")
     parser.add_argument("--no-build", action="store_true", help="跳过 Qt Desktop 增量构建")
-    parser.add_argument("--devtools", action="store_true", help="同时打开 Chromium DevTools")
-    parser.add_argument(
-        "--dedicated-player",
-        action="store_true",
-        help="使用独立原生播放器窗口",
-    )
+    parser.add_argument("--play-episode", type=int, help="启动后直接播放指定 Episode")
     return parser.parse_args(argv)
 
 
 def desktop_command(root: Path, args: argparse.Namespace) -> list[str]:
-    command = [str(root / "desktop" / "build" / "autoanime-desktop"), "--dev"]
-    if args.devtools:
-        command.append("--devtools")
-    if args.dedicated_player:
-        command.append("--dedicated-player")
+    command = [str(root / "desktop" / "build" / "autoanime-desktop")]
+    if args.play_episode:
+        command.extend(["--play-episode", str(args.play_episode)])
     return command
+
+
+def project_python(root: Path) -> str:
+    candidates = (
+        [root / ".venv" / "Scripts" / "python.exe"]
+        if os.name == "nt"
+        else [root / ".venv" / "bin" / "python"]
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    return sys.executable
 
 
 def build_desktop(root: Path) -> None:
@@ -150,17 +154,12 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGINT, request_stop)
     signal.signal(signal.SIGTERM, request_stop)
     try:
-        print("[AutoAnime] 启动 FastAPI 与 Vite……", flush=True)
+        print("[AutoAnime] 启动 FastAPI……", flush=True)
         processes["FastAPI"] = start_process(
-            [sys.executable, "-m", "uvicorn", "backend.app.main:app", "--reload", "--port", "8765"],
-            root,
-        )
-        processes["Vite"] = start_process(
-            ["npm", "--workspace", "frontend", "run", "dev", "--", "--strictPort"],
+            [project_python(root), "-m", "uvicorn", "backend.app.main:app", "--reload", "--port", "8765"],
             root,
         )
         wait_for_http(f"{BACKEND_URL}/api/health", processes)
-        wait_for_http(FRONTEND_URL, processes)
         if interrupted:
             return 130
 
@@ -170,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
             desktop_code = processes["Qt Desktop"].poll()
             if desktop_code is not None:
                 return desktop_code
-            for name in ("FastAPI", "Vite"):
+            for name in ("FastAPI",):
                 code = processes[name].poll()
                 if code is not None:
                     raise RuntimeError(f"{name} 意外退出，状态码 {code}")

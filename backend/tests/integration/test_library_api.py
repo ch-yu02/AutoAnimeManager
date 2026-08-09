@@ -68,6 +68,7 @@ async def test_manual_multi_episode_link_ignore_restore_and_unlink(tmp_path: Pat
                 "subject_id": subject_id, "episode_ids": episode_ids,
                 "primary": True, "lock": True, "write_manifest": True,
             })
+            recent = await client.get("/api/library/recent?limit=1")
             review = await client.get("/api/library/review")
             hashed = await client.post("/api/library/files/1/full-hash")
             unlinked = await client.delete("/api/library/files/1/match")
@@ -78,6 +79,10 @@ async def test_manual_multi_episode_link_ignore_restore_and_unlink(tmp_path: Pat
             ignored = await client.post("/api/library/files/1/ignore", json={"ignored": True})
 
     assert linked.status_code == 200
+    assert recent.status_code == 200
+    assert recent.json()[0]["filename"] == video.name
+    assert recent.json()[0]["subject"]["id"] == subject_id
+    assert recent.json()[0]["created_at"]
     assert len(linked.json()["episodes"]) == 2
     assert linked.json()["locked"] is True
     assert len(review.json()["manually_linked"]) == 1

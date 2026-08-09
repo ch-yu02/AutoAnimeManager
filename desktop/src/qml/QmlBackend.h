@@ -1,0 +1,111 @@
+#pragma once
+
+#include <QJsonObject>
+#include <QObject>
+#include <QUrl>
+#include <QTimer>
+#include <QVariantList>
+#include <QVariantMap>
+
+#include <functional>
+
+class QNetworkAccessManager;
+class QNetworkReply;
+
+namespace autoanime {
+
+class QmlBackend final : public QObject {
+    Q_OBJECT
+    Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    Q_PROPERTY(QString error READ error NOTIFY errorChanged)
+    Q_PROPERTY(QString notice READ notice NOTIFY noticeChanged)
+    Q_PROPERTY(QVariantMap status READ status NOTIFY homeChanged)
+    Q_PROPERTY(QVariantList continueWatching READ continueWatching NOTIFY homeChanged)
+    Q_PROPERTY(QVariantList doingSubjects READ doingSubjects NOTIFY homeChanged)
+    Q_PROPERTY(QVariantList recentMedia READ recentMedia NOTIFY homeChanged)
+    Q_PROPERTY(QVariantList subjects READ subjects NOTIFY subjectsChanged)
+    Q_PROPERTY(QVariantMap subject READ subject NOTIFY subjectChanged)
+    Q_PROPERTY(QVariantList episodes READ episodes NOTIFY subjectChanged)
+    Q_PROPERTY(QVariantMap review READ review NOTIFY libraryChanged)
+    Q_PROPERTY(QVariantMap scanStatus READ scanStatus NOTIFY libraryChanged)
+    Q_PROPERTY(QVariantMap settings READ settings NOTIFY settingsChanged)
+
+public:
+    explicit QmlBackend(QUrl baseUrl, QObject *parent = nullptr);
+
+    bool busy() const noexcept { return m_pending > 0; }
+    QString error() const { return m_error; }
+    QString notice() const { return m_notice; }
+    QVariantMap status() const { return m_status; }
+    QVariantList continueWatching() const { return m_continueWatching; }
+    QVariantList doingSubjects() const { return m_doingSubjects; }
+    QVariantList recentMedia() const { return m_recentMedia; }
+    QVariantList subjects() const { return m_subjects; }
+    QVariantMap subject() const { return m_subject; }
+    QVariantList episodes() const { return m_episodes; }
+    QVariantMap review() const { return m_review; }
+    QVariantMap scanStatus() const { return m_scanStatus; }
+    QVariantMap settings() const { return m_settings; }
+
+    Q_INVOKABLE void loadHome();
+    Q_INVOKABLE void loadSubjects(const QString &collectionType, bool localOnly);
+    Q_INVOKABLE void loadSubject(qint64 subjectId);
+    Q_INVOKABLE void loadLibrary();
+    Q_INVOKABLE void loadSettings();
+    Q_INVOKABLE void startLibraryScan();
+    Q_INVOKABLE void rematchReview();
+    Q_INVOKABLE void ignoreFile(qint64 fileId, bool ignored);
+    Q_INVOKABLE void unlinkFile(qint64 fileId);
+    Q_INVOKABLE void reparseFile(qint64 fileId);
+    Q_INVOKABLE void matchFile(qint64 fileId, qint64 subjectId, const QVariantList &episodeIds);
+    Q_INVOKABLE void markWatched(qint64 episodeId, bool watched);
+    Q_INVOKABLE void saveSettings(
+        const QString &username,
+        const QString &token,
+        const QString &libraryRoots,
+        bool autoPlayNext,
+        bool bangumiWriteback
+    );
+    Q_INVOKABLE void testConnection(const QString &service);
+    Q_INVOKABLE void startBangumiSync();
+    Q_INVOKABLE void clearMessage();
+    Q_INVOKABLE void dismissNotice();
+    Q_INVOKABLE void dismissError();
+
+signals:
+    void busyChanged();
+    void errorChanged();
+    void noticeChanged();
+    void homeChanged();
+    void subjectsChanged();
+    void subjectChanged();
+    void libraryChanged();
+    void settingsChanged();
+
+private:
+    using Handler = std::function<void(const QVariant &)>;
+
+    void send(const QByteArray &method, const QString &path, const QJsonObject &body, Handler handler);
+    QUrl url(const QString &path) const;
+    void setError(const QString &message);
+    void setNotice(const QString &message);
+
+    QNetworkAccessManager *m_network;
+    QTimer m_scanTimer;
+    QUrl m_baseUrl;
+    int m_pending{0};
+    QString m_error;
+    QString m_notice;
+    QVariantMap m_status;
+    QVariantList m_continueWatching;
+    QVariantList m_doingSubjects;
+    QVariantList m_recentMedia;
+    QVariantList m_subjects;
+    QVariantMap m_subject;
+    QVariantList m_episodes;
+    QVariantMap m_review;
+    QVariantMap m_scanStatus;
+    QVariantMap m_settings;
+};
+
+} // namespace autoanime

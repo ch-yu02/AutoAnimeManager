@@ -121,6 +121,11 @@ void MpvCore::setMuted(bool muted)
     reportError(QStringLiteral("设置静音"), setFlag("mute", muted));
 }
 
+void MpvCore::setSpeed(double value)
+{
+    reportError(QStringLiteral("设置播放速度"), setDouble("speed", std::clamp(value, 0.25, 4.0)));
+}
+
 void MpvCore::selectAudioTrack(int id)
 {
     reportError(QStringLiteral("选择音轨"), id < 0
@@ -207,6 +212,16 @@ void MpvCore::handleEvent(mpv_event *event)
         } else if (std::strcmp(property->name, "mute") == 0 && property->format == MPV_FORMAT_FLAG && property->data != nullptr) {
             m_muted = *static_cast<int *>(property->data) != 0;
             emit muteChanged(m_muted);
+        } else if (std::strcmp(property->name, "speed") == 0 && property->format == MPV_FORMAT_DOUBLE && property->data != nullptr) {
+            m_speed = *static_cast<double *>(property->data);
+            emit speedChanged(m_speed);
+        } else if (std::strcmp(property->name, "decoder-frame-drop-count") == 0 && property->format == MPV_FORMAT_INT64 && property->data != nullptr) {
+            m_droppedFrames = *static_cast<qint64 *>(property->data);
+            emit diagnosticsChanged(m_hwdec, m_droppedFrames);
+        } else if (std::strcmp(property->name, "hwdec-current") == 0 && property->format == MPV_FORMAT_STRING && property->data != nullptr) {
+            const char *value = *static_cast<char **>(property->data);
+            m_hwdec = value == nullptr ? QString{} : QString::fromUtf8(value);
+            emit diagnosticsChanged(m_hwdec, m_droppedFrames);
         } else if (std::strcmp(property->name, "track-list") == 0 && property->format == MPV_FORMAT_NODE && property->data != nullptr) {
             refreshTrackList();
         } else if (std::strcmp(property->name, "aid") == 0 || std::strcmp(property->name, "sid") == 0) {
@@ -244,6 +259,9 @@ void MpvCore::observeProperties()
     mpv_observe_property(m_handle, 6, "track-list", MPV_FORMAT_NODE);
     mpv_observe_property(m_handle, 7, "aid", MPV_FORMAT_NODE);
     mpv_observe_property(m_handle, 8, "sid", MPV_FORMAT_NODE);
+    mpv_observe_property(m_handle, 9, "speed", MPV_FORMAT_DOUBLE);
+    mpv_observe_property(m_handle, 10, "decoder-frame-drop-count", MPV_FORMAT_INT64);
+    mpv_observe_property(m_handle, 11, "hwdec-current", MPV_FORMAT_STRING);
 }
 
 void MpvCore::refreshTrackList()
