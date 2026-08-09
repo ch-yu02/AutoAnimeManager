@@ -1,13 +1,14 @@
 # AutoAnime
 
-单用户、本地运行的 Bangumi 自动追番与媒体管理器。当前完成阶段 3：除 Bangumi 元数据同步和本地媒体映射外，已支持网页内播放、观看进度持久化、继续观看和已看状态管理；下载将在后续阶段实现。
+单用户、本地运行的 Bangumi 自动追番与媒体管理器。当前已完成 Bangumi 数据层、本地媒体映射、观看状态业务层，以及 Qt/libmpv Desktop 原生播放闭环。旧网页 HLS 和独立 mpv 子进程播放架构已删除。
 
 ## 环境要求
 
 - Python 3.12+
 - Node.js 22+
 - npm 10+
-- FFmpeg（用于 `ffprobe` 媒体探测及网页 HLS 完整预转码）
+- FFmpeg/`ffprobe`（仅用于媒体探测）
+- Qt Desktop 需要 CMake、Qt 6 Base/OpenGL/WebEngine/WebChannel/Network 开发包和 `libmpv-dev`
 - 后续下载阶段需要独立安装 qBittorrent
 
 ## 首次启动
@@ -61,6 +62,17 @@ pytest
 npm run typecheck
 npm run build
 
+# Qt/libmpv Desktop
+cmake -S desktop -B desktop/build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build desktop/build
+ctest --test-dir desktop/build --output-on-failure
+
+# Qt WebEngine Desktop Shell（开发模式加载 Vite）
+desktop/build/autoanime-desktop --dev --devtools
+
+# 生产模式：先构建 frontend/dist 并启动 FastAPI，再运行
+desktop/build/autoanime-desktop
+
 # SQLite 在线备份
 python -m scripts.backup
 ```
@@ -76,7 +88,7 @@ GET  /api/settings
 PATCH /api/settings
 POST /api/settings/test/bangumi
 POST /api/settings/test/qbittorrent
-POST /api/settings/test/ffmpeg
+POST /api/settings/test/ffprobe
 POST /api/bangumi/sync
 GET  /api/bangumi/sync/status
 GET  /api/subjects
@@ -91,10 +103,9 @@ DELETE /api/library/files/{id}/match
 POST /api/library/files/{id}/ignore
 POST /api/library/files/{id}/reparse
 POST /api/library/files/{id}/full-hash
-POST /api/playback/web/start
-GET  /api/playback/web/{session}/index.m3u8
-POST /api/playback/web/{session}/progress
-DELETE /api/playback/web/{session}
+POST /api/playback/sessions
+POST /api/playback/sessions/{session}/progress
+DELETE /api/playback/sessions/{session}
 GET  /api/playback/continue
 GET  /api/subjects/{id}/next-unwatched
 POST /api/episodes/{id}/mark-watched
@@ -105,4 +116,6 @@ POST /api/episodes/{id}/mark-unwatched
 
 媒体扫描以路径、大小和修改时间判断未变化文件，只对新增或变化文件执行部分哈希、可选 `ffprobe` 和文件名解析；仅在疑似重复时计算完整哈希。低置信度、批量文件、manifest 冲突和多主文件进入审核队列。人工关联默认锁定，并写入同目录 `manifest.json`，后续扫描不会覆盖。
 
-播放前由 FFmpeg 将整部本地视频预转码为 HLS VOD，完成后在条目详情页内嵌播放，因此进入播放需要等待，但原生进度条可立即显示完整时长并支持任意跳转；同名 `.ass/.ssa/.srt` 外挂字幕或首条内封字幕会通过 libass 烧录。网页在播放、暂停和结束时保存进度。有效播放不足 60 秒不会覆盖旧进度；播放达到 90%、剩余不超过 5 分钟或正常播完时自动标记已看，手动已看/未看优先于自动判断。下一集仅在同一 Subject 的 MAIN 章节中选择已有本地文件的后续最小集数，文件删除后观看历史仍保留。
+Qt Desktop 通过 libmpv 直接播放本地媒体，不进行网页转码；支持内封/外挂字幕、音轨切换、完整时间轴跳转和续播。播放、暂停、跳转、停止及正常结束时会保存进度。有效播放不足 60 秒不会覆盖旧进度；播放达到 90%、剩余不超过 5 分钟或正常播完时自动标记已看，手动已看/未看优先于自动判断。下一集仅在同一 Subject 的 MAIN 章节中选择已有本地文件的后续最小集数，文件删除后观看历史仍保留。
+
+`desktop/` 包含 Qt 6 + `QOpenGLWidget` + libmpv Render API 验证程序及正式的 `autoanime-desktop`：QWebEngine 加载 Vue，QWebChannel 提供受限 NativeBridge，Qt PlayerController 通过 FastAPI 播放 Session API 获取媒体路径并上报进度；`NativePlayer` 通过 DOM 矩形同步，让原生视频 Surface 视觉上位于 Vue 页面内部。WebEngine/WebChannel 是 Desktop Shell 的必要构建依赖，缺少时 CMake 会跳过 Desktop Shell 并保留 libmpv 探针。

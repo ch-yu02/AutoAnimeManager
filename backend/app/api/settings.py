@@ -26,7 +26,6 @@ class SettingsPatch(BaseModel):
     bangumi_username: str | None = Field(default=None, min_length=1)
     bangumi_access_token: str | None = Field(default=None, min_length=1)
     library_roots: list[str] | None = None
-    mpv_path: str | None = Field(default=None, min_length=1)
     auto_play_next: bool | None = None
     bangumi_writeback_enabled: bool | None = None
 
@@ -74,15 +73,13 @@ async def update_settings(payload: SettingsPatch) -> dict[str, object]:
                 detail={"code": "invalid_config", "message": "storage 配置必须是对象"},
             )
         storage["library_roots"] = roots
-    if payload.mpv_path is not None or payload.auto_play_next is not None or payload.bangumi_writeback_enabled is not None:
+    if payload.auto_play_next is not None or payload.bangumi_writeback_enabled is not None:
         player = raw.setdefault("player", {})
         if not isinstance(player, dict):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={"code": "invalid_config", "message": "player 配置必须是对象"},
             )
-        if payload.mpv_path is not None:
-            player["mpv_path"] = payload.mpv_path
         if payload.auto_play_next is not None:
             player["auto_play_next"] = payload.auto_play_next
         if payload.bangumi_writeback_enabled is not None:
@@ -143,31 +140,15 @@ async def test_qbittorrent() -> ConnectionTestResult:
     )
 
 
-@router.post("/test/mpv", response_model=ConnectionTestResult)
-async def test_mpv() -> ConnectionTestResult:
-    configured = get_settings().player.mpv_path
+@router.post("/test/ffprobe", response_model=ConnectionTestResult)
+async def test_ffprobe() -> ConnectionTestResult:
+    configured = get_settings().storage.ffprobe_path
     candidate = Path(configured).expanduser()
     executable = str(candidate) if candidate.is_file() and os.access(candidate, os.X_OK) else shutil.which(configured)
     if executable:
         return ConnectionTestResult(
-            service="mpv",
-            status="ok",
-            detail=f"已找到 MPV：{executable}",
+            service="ffprobe", status="ok", detail=f"已找到 ffprobe：{executable}",
         )
     return ConnectionTestResult(
-        service="mpv",
-        status="unavailable",
-        detail=f"找不到可执行文件：{configured}",
-    )
-
-
-@router.post("/test/ffmpeg", response_model=ConnectionTestResult)
-async def test_ffmpeg() -> ConnectionTestResult:
-    executable = shutil.which("ffmpeg")
-    if executable:
-        return ConnectionTestResult(
-            service="ffmpeg", status="ok", detail=f"已找到 FFmpeg：{executable}",
-        )
-    return ConnectionTestResult(
-        service="ffmpeg", status="unavailable", detail="找不到 FFmpeg，网页播放不可用",
+        service="ffprobe", status="unavailable", detail=f"找不到媒体探测工具：{configured}",
     )

@@ -84,7 +84,7 @@ async function pollSync() {
   }
 }
 
-async function test(service: 'bangumi' | 'qbittorrent' | 'ffmpeg') {
+async function test(service: 'bangumi' | 'qbittorrent' | 'ffprobe') {
   testing.value = service
   try { results.value[service] = await api.testConnection(service) }
   catch (reason) {
@@ -128,11 +128,11 @@ onUnmounted(stopPolling)
         <NButton :loading="saving" type="primary" @click="save">保存配置</NButton>
       </NCard>
       <div class="settings-grid">
-        <NCard v-for="service in ['qbittorrent', 'ffmpeg']" :key="service" :title="service">
+        <NCard v-for="service in ['qbittorrent', 'ffprobe']" :key="service" :title="service">
           <p class="muted">{{ results[service]?.detail || '尚未测试' }}</p>
           <NTag v-if="results[service]" style="margin-bottom: 12px">{{ results[service].status }}</NTag>
           <br />
-          <NButton :loading="testing === service" @click="test(service as 'bangumi' | 'qbittorrent' | 'ffmpeg')">
+          <NButton :loading="testing === service" @click="test(service as 'bangumi' | 'qbittorrent' | 'ffprobe')">
             测试连接
           </NButton>
         </NCard>
@@ -142,10 +142,9 @@ onUnmounted(stopPolling)
           <NCheckbox v-model:checked="autoPlayNext">播放完成后自动播放下一集</NCheckbox>
           <NCheckbox v-model:checked="bangumiWriteback">回写 Bangumi 已看状态</NCheckbox>
         </div>
-        <p class="muted">视频通过 FFmpeg 转为 HLS 后在网页内播放；精确播放位置只保存在本地，启用回写时仅同步已看/未看状态。</p>
+        <p class="muted">桌面客户端通过 libmpv 直接播放本地媒体；精确播放位置只保存在本地，启用回写时仅同步已看/未看状态。</p>
         <div class="button-row">
           <NButton :loading="saving" type="primary" @click="save">保存配置</NButton>
-          <NButton :loading="testing === 'ffmpeg'" @click="test('ffmpeg')">测试 FFmpeg</NButton>
         </div>
       </NCard>
       <NCard title="当前配置（脱敏）" style="margin-top: 20px">

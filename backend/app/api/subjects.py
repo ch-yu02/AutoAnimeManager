@@ -4,7 +4,7 @@ from datetime import date, datetime
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 
 from backend.app.database.models.episode import Episode
 from backend.app.database.models.media import EpisodeFile, MediaFile
@@ -77,8 +77,19 @@ def _display_name(subject: Subject) -> str:
     return subject.name_cn or subject.name or f"Bangumi #{subject.bangumi_subject_id}"
 
 
-def _list_item(session, subject: Subject) -> SubjectListItem:
-    episodes = list(session.scalars(select(Episode).where(Episode.subject_id == subject.id)))
+def _list_item(
+    session,
+    subject: Subject,
+    episode_count: int | None = None,
+    main_episode_count: int | None = None,
+) -> SubjectListItem:
+    if episode_count is None or main_episode_count is None:
+        episode_count, main_episode_count = session.execute(
+            select(
+                func.count(Episode.id),
+                func.count(Episode.id).filter(Episode.episode_type == "MAIN"),
+            ).where(Episode.subject_id == subject.id)
+        ).one()
     return SubjectListItem(
         id=subject.id,
         bangumi_subject_id=subject.bangumi_subject_id,
@@ -93,8 +104,8 @@ def _list_item(session, subject: Subject) -> SubjectListItem:
         collection_type=subject.collection_type,
         collection_updated_at=subject.collection_updated_at,
         total_main_episodes=subject.total_main_episodes,
-        episode_count=len(episodes),
-        main_episode_count=sum(episode.episode_type == "MAIN" for episode in episodes),
+        episode_count=episode_count,
+        main_episode_count=main_episode_count,
         last_synced_at=subject.last_synced_at,
     )
 
@@ -108,19 +119,44 @@ async def list_subjects(
 ) -> list[SubjectListItem]:
     selected_type = collection_type or status_filter or collection_status
     with session_scope() as session:
-        query = select(Subject).where(Subject.collection_type.is_not(None)).order_by(Subject.updated_at.desc())
+        episode_counts = (
+            select(
+                Episode.subject_id.label("subject_id"),
+                func.count(Episode.id).label("episode_count"),
+                func.sum(case((Episode.episode_type == "MAIN", 1), else_=0)).label("main_episode_count"),
+            )
+            .group_by(Episode.subject_id)
+            .subquery()
+        )
+        query = (
+            select(
+                Subject,
+                func.coalesce(episode_counts.c.episode_count, 0),
+                func.coalesce(episode_counts.c.main_episode_count, 0),
+            )
+            .outerjoin(episode_counts, episode_counts.c.subject_id == Subject.id)
+            .where(Subject.collection_type.is_not(None))
+            .order_by(Subject.updated_at.desc())
+        )
         if selected_type:
             query = query.where(Subject.collection_type == selected_type.upper())
         if local_only:
-            local_subjects = (
+            local_subject_ids = (
                 select(Episode.subject_id)
                 .join(EpisodeFile, EpisodeFile.episode_id == Episode.id)
                 .join(MediaFile, MediaFile.id == EpisodeFile.media_file_id)
-                .where(MediaFile.exists.is_(True), MediaFile.ignored.is_(False))
+                .where(
+                    MediaFile.exists.is_(True),
+                    MediaFile.ignored.is_(False),
+                )
+                .distinct()
             )
-            query = query.where(Subject.id.in_(local_subjects))
-        subjects = list(session.scalars(query))
-        return [_list_item(session, subject) for subject in subjects]
+            query = query.where(Subject.id.in_(local_subject_ids))
+        rows = session.execute(query)
+        return [
+            _list_item(session, subject, int(episode_count), int(main_episode_count))
+            for subject, episode_count, main_episode_count in rows
+        ]
 
 
 @router.get("/{subject_id}", response_model=SubjectDetail)

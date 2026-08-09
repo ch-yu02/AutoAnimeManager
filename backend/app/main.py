@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import mimetypes
+from pathlib import Path
+from urllib.parse import unquote
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.responses import Response
 
 from backend.app import __version__
 from backend.app.api.health import router as health_router
@@ -18,11 +22,9 @@ from backend.app.modules.bangumi.sync_service import BangumiSyncService
 from backend.app.modules.scheduler import SchedulerSkeleton
 from backend.app.modules.library.scanner import LibraryScanner
 from backend.app.modules.library.service import LibraryScanService
-from backend.app.modules.playback.process_manager import MpvProcessManager
-from backend.app.modules.playback.service import PlaybackService
+from backend.app.modules.playback.session_service import PlaybackSessionService
 from backend.app.modules.playback.state_service import PlaybackStateService
 from backend.app.modules.playback.writeback import writeback_episode_state
-from backend.app.modules.playback.web_stream import WebPlaybackService
 
 
 @asynccontextmanager
@@ -39,22 +41,15 @@ async def lifespan(app: FastAPI):
     app.state.library_scan_service = LibraryScanService(
         LibraryScanner(settings_provider=get_settings)
     )
-    app.state.playback_service = PlaybackService(
-        PlaybackStateService(settings_provider=lambda: get_settings().player),
-        MpvProcessManager(settings_provider=lambda: get_settings().player),
-        settings_provider=lambda: get_settings().player,
-        writeback=writeback_episode_state,
-    )
-    app.state.web_playback_service = WebPlaybackService(
-        PlaybackStateService(settings_provider=lambda: get_settings().player),
+    playback_state_service = PlaybackStateService(settings_provider=lambda: get_settings().player)
+    app.state.playback_session_service = PlaybackSessionService(
+        playback_state_service,
         settings_provider=lambda: get_settings().player,
         writeback=writeback_episode_state,
     )
     try:
         yield
     finally:
-        await app.state.playback_service.shutdown()
-        await app.state.web_playback_service.shutdown()
         scheduler.stop()
 
 
@@ -78,9 +73,31 @@ def create_app() -> FastAPI:
     app.include_router(library_router, prefix="/api")
     app.include_router(playback_router, prefix="/api")
 
-    @app.get("/", include_in_schema=False)
-    async def root() -> dict[str, str]:
+    frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+
+    def frontend_response(file_path: str) -> Response:
+        root = frontend_dist.resolve()
+        candidate = (root / unquote(file_path)).resolve()
+        if not candidate.is_relative_to(root) or candidate.is_dir() or not candidate.is_file():
+            if file_path.startswith("api/"):
+                raise HTTPException(status_code=404, detail="Not Found")
+            candidate = root / "index.html"
+        if not candidate.is_file():
+            raise HTTPException(status_code=404, detail="Frontend build not found")
+        media_type = mimetypes.guess_type(candidate.name)[0] or "application/octet-stream"
+        return Response(candidate.read_bytes(), media_type=media_type)
+
+    @app.get("/", include_in_schema=False, response_model=None)
+    async def root() -> Response | dict[str, str]:
+        if frontend_dist.is_dir():
+            return frontend_response("")
         return {"service": "AutoAnime", "docs": "/docs"}
+
+    @app.get("/{file_path:path}", include_in_schema=False)
+    async def frontend(file_path: str) -> Response:
+        if not frontend_dist.is_dir():
+            raise HTTPException(status_code=404, detail="Frontend build not found")
+        return frontend_response(file_path)
 
     return app
 

@@ -70,18 +70,41 @@ async def test_subject_list_detail_and_episodes(tmp_path: Path, monkeypatch) -> 
                 episode_id=episode.id, media_file_id=media.id, mapping_source="TEST",
                 confidence=1, reasons="[]", is_primary=True,
             ))
+            for index, collection_type in enumerate(("WISH", "COLLECTED", "ON_HOLD", "DROPPED"), start=101):
+                session.add(Subject(
+                    bangumi_subject_id=index,
+                    name=collection_type,
+                    collection_type=collection_type,
+                    keep_forever=False,
+                ))
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://test",
         ) as client:
             listing = await client.get("/api/subjects?collection_status=DOING")
             local_listing = await client.get("/api/subjects?collection_status=DOING&local_only=true")
+            collection_listings = {
+                collection_type: await client.get(
+                    "/api/subjects", params={"collection_type": collection_type}
+                )
+                for collection_type in ("WISH", "COLLECTED", "ON_HOLD", "DROPPED")
+            }
+            local_wish = await client.get(
+                "/api/subjects", params={"collection_type": "WISH", "local_only": "true"}
+            )
             detail = await client.get("/api/subjects/1")
             episodes = await client.get("/api/subjects/1/episodes")
 
     assert listing.status_code == 200
     assert listing.json()[0]["display_name"] == "测试条目"
     assert local_listing.json()[0]["display_name"] == "测试条目"
+    assert all(
+        response.status_code == 200
+        and [item["collection_type"] for item in response.json()] == [collection_type]
+        for collection_type, response in collection_listings.items()
+    )
+    assert local_wish.status_code == 200
+    assert local_wish.json() == []
     assert detail.status_code == 200
     assert detail.json()["relations"] == []
     assert episodes.status_code == 200

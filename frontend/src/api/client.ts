@@ -106,27 +106,6 @@ export interface PlaybackStateView {
   completed_at?: string | null
 }
 
-export interface CurrentPlayback {
-  status: 'IDLE' | 'PLAYING' | 'PAUSED'
-  episode_id: number | null
-  media_file_id?: number
-  path?: string
-  position_seconds?: number
-  duration_seconds?: number | null
-  progress_ratio?: number
-  has_next?: boolean
-}
-
-export interface WebPlayback {
-  session_id: string
-  episode_id: number
-  media_file_id: number
-  playlist_url: string
-  start_seconds: number
-  initial_position_seconds: number
-  duration_seconds: number | null
-}
-
 export interface ContinueWatching extends PlaybackStateView {
   episode_id: number
   episode: { id: number; subject_id: number; display_number: string; name: string }
@@ -210,15 +189,16 @@ export const api = {
     request<PublicSettings>('/settings', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
     }),
-  testConnection: (service: 'bangumi' | 'qbittorrent' | 'mpv' | 'ffmpeg') =>
+  testConnection: (service: 'bangumi' | 'qbittorrent' | 'ffprobe') =>
     request<ConnectionTestResult>(`/settings/test/${service}`, { method: 'POST' }),
   startSync: () => request<SyncStart>('/bangumi/sync', { method: 'POST' }),
   syncStatus: (taskId?: string) => request<SyncStatus>(`/bangumi/sync/status${taskId ? `?task_id=${encodeURIComponent(taskId)}` : ''}`),
-  subjects: (collectionType?: string, localOnly = false) => {
+  subjects: (collectionType?: string, localOnly = false, signal?: AbortSignal) => {
     const params = new URLSearchParams()
     if (collectionType) params.set('collection_type', collectionType)
     if (localOnly) params.set('local_only', 'true')
-    return request<SubjectListItem[]>(`/subjects${params.size ? `?${params}` : ''}`)
+    const query = params.toString()
+    return request<SubjectListItem[]>(`/subjects${query ? `?${query}` : ''}`, { signal })
   },
   subject: (id: number) => request<SubjectDetail>(`/subjects/${id}`),
   episodes: (id: number) => request<EpisodeView[]>(`/subjects/${id}/episodes`),
@@ -232,22 +212,8 @@ export const api = {
   ignoreFile: (fileId: number, ignored: boolean) => request<MediaFileView>(`/library/files/${fileId}/ignore`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ignored }) }),
   reparseFile: (fileId: number) => request<{ task_id: string; status: string }>(`/library/files/${fileId}/reparse`, { method: 'POST' }),
   fullHashFile: (fileId: number) => request<MediaFileView>(`/library/files/${fileId}/full-hash`, { method: 'POST' }),
-  currentPlayback: () => request<CurrentPlayback>('/playback/current'),
   continueWatching: () => request<ContinueWatching[]>('/playback/continue'),
-  startPlayback: (episodeId: number, fromStart = false) => request<CurrentPlayback>('/playback/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ episode_id: episodeId, from_start: fromStart }) }),
-  pausePlayback: () => request<CurrentPlayback>('/playback/pause', { method: 'POST' }),
-  resumePlayback: () => request<CurrentPlayback>('/playback/resume', { method: 'POST' }),
-  stopPlayback: () => request<CurrentPlayback>('/playback/stop', { method: 'POST' }),
-  nextPlayback: () => request<CurrentPlayback>('/playback/next', { method: 'POST' }),
-  seekPlayback: (positionSeconds: number) => request<CurrentPlayback>('/playback/seek', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ position_seconds: positionSeconds }) }),
   markWatched: (episodeId: number) => request<PlaybackStateView>(`/episodes/${episodeId}/mark-watched`, { method: 'POST' }),
   markUnwatched: (episodeId: number) => request<PlaybackStateView>(`/episodes/${episodeId}/mark-unwatched`, { method: 'POST' }),
   nextUnwatched: (subjectId: number) => request<{ episode_id: number; display_number: string; name: string; ready: boolean } | null>(`/subjects/${subjectId}/next-unwatched`),
-  startWebPlayback: (episodeId: number, fromStart = false, positionSeconds?: number) => request<WebPlayback>('/playback/web/start', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ episode_id: episodeId, from_start: fromStart, position_seconds: positionSeconds }),
-  }),
-  saveWebProgress: (sessionId: string, positionSeconds: number, durationSeconds: number | null, ended = false) => request<PlaybackStateView>(`/playback/web/${sessionId}/progress`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ position_seconds: positionSeconds, duration_seconds: durationSeconds, ended }) }),
-  stopWebPlayback: (sessionId: string) => request<void>(`/playback/web/${sessionId}`, { method: 'DELETE' }),
 }

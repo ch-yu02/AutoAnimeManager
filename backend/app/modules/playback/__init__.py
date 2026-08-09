@@ -1,3 +1,3 @@
-from backend.app.modules.playback.service import PlaybackService
+from backend.app.modules.playback.session_service import PlaybackSessionService
 
-__all__ = ["PlaybackService"]
+__all__ = ["PlaybackSessionService"]

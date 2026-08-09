@@ -4,7 +4,7 @@ import { computed, h, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { api, type EpisodeView, type SubjectDetail } from '../api/client'
-import WebPlayer from '../components/WebPlayer.vue'
+import NativePlayer from '../components/NativePlayer.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -75,15 +75,9 @@ async function mark(episode: EpisodeView) {
   catch (reason) { error.value = reason instanceof Error ? reason.message : '更新观看状态失败' }
 }
 
-async function onPlaybackEnded() {
-  const currentId = playingEpisodeId.value
+async function onPlaybackEnded(nextEpisodeId: number) {
   await load()
-  if (!autoPlayNext.value || currentId === null) return
-  const currentIndex = episodes.value.findIndex(episode => episode.id === currentId)
-  const next = episodes.value.slice(currentIndex + 1).find(
-    episode => episode.episode_type === 'MAIN' && episode.local_status === 'READY',
-  )
-  if (next) await play(next.id, false)
+  if (autoPlayNext.value && nextEpisodeId > 0) await play(nextEpisodeId, false)
 }
 
 onMounted(load)
@@ -105,7 +99,7 @@ onMounted(load)
             <p class="muted">条目关系：{{ relationText }}</p>
           </NCard>
         </div>
-        <WebPlayer
+        <NativePlayer
           v-if="playingEpisodeId !== null"
           :episode-id="playingEpisodeId"
           :from-start="playFromStart"

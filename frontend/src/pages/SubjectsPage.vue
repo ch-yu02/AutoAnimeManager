@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { NButton, NCard, NEmpty, NSelect, NSpin, NSwitch, NTab, NTabs, NTag } from 'naive-ui'
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { api, type SubjectListItem } from '../api/client'
@@ -11,6 +11,8 @@ const subjects = ref<SubjectListItem[]>([])
 const loading = ref(false)
 const error = ref('')
 const localOnly = ref(false)
+let loadController: AbortController | null = null
+let loadGeneration = 0
 const collectionLabels: Record<string, string> = {
   WISH: '想看',
   DOING: '在看',
@@ -55,27 +57,44 @@ function jumpTo(timeKey: string) {
 }
 
 async function load() {
+  const generation = ++loadGeneration
+  loadController?.abort()
+  loadController = new AbortController()
   loading.value = true
   error.value = ''
-  try { subjects.value = await api.subjects(currentType.value, localOnly.value) }
-  catch (reason) { error.value = reason instanceof Error ? reason.message : '读取条目失败' }
-  finally { loading.value = false }
+  try {
+    const result = await api.subjects(currentType.value, localOnly.value, loadController.signal)
+    if (generation === loadGeneration) subjects.value = result
+  }
+  catch (reason) {
+    if (reason instanceof DOMException && reason.name === 'AbortError') return
+    if (generation === loadGeneration) error.value = reason instanceof Error ? reason.message : '读取条目失败'
+  }
+  finally {
+    if (generation === loadGeneration) loading.value = false
+  }
 }
 
-watch(currentType, load, { immediate: true })
+function changeCollection(value: string | number) {
+  const slug = String(value)
+  if (slug !== currentSlug.value) void router.push(`/subjects/${slug}`)
+}
+
+watch([currentType, localOnly], load, { immediate: true })
+onBeforeUnmount(() => loadController?.abort())
 </script>
 
 <template>
   <div>
     <h1 class="page-title">我的条目</h1>
     <p class="page-description">来自 Bangumi 的收藏与章节元数据。</p>
-    <NTabs :value="currentSlug" type="line" @update:value="value => router.push(`/subjects/${value}`)">
+    <NTabs :value="currentSlug" type="line" @update:value="changeCollection">
       <NTab v-for="tab in collectionTabs" :key="tab.slug" :name="tab.slug">
         {{ collectionLabels[tab.type] }}
       </NTab>
     </NTabs>
     <div class="local-filter">
-      <NSwitch v-model:value="localOnly" @update:value="load" />
+      <NSwitch v-model:value="localOnly" />
       <span>只显示已匹配本地媒体的条目</span>
     </div>
     <NSpin :show="loading">
@@ -104,7 +123,7 @@ watch(currentType, load, { immediate: true })
                 content-style="padding: 0"
               >
                 <button class="subject-card-button" @click="router.push({ name: 'subject-detail', params: { id: subject.id } })">
-                  <img v-if="subject.image_url" :src="subject.image_url" :alt="subject.display_name" />
+                  <img v-if="subject.image_url" :src="subject.image_url" :alt="subject.display_name" loading="lazy" decoding="async" />
                   <div class="subject-card-content">
                     <h2>{{ subject.display_name }}</h2>
                     <div class="subject-card-meta">
@@ -148,6 +167,8 @@ watch(currentType, load, { immediate: true })
 }
 
 .subject-time-group {
+  content-visibility: auto;
+  contain-intrinsic-size: 800px;
   scroll-margin-top: 20px;
 }
 
