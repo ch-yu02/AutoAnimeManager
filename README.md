@@ -23,7 +23,22 @@ npm install
 python scripts/dev.py
 ```
 
-打开 `http://127.0.0.1:5173`。FastAPI 文档位于 `http://127.0.0.1:8765/docs`。
+`python scripts/dev.py` 会自动增量构建 Desktop、启动 FastAPI 和 Vite，并打开 Qt Desktop；关闭桌面窗口或按一次 `Ctrl+C` 会统一停止所有进程，不需要分别打开三个终端。首次构建时间较长，后续为增量构建。
+
+可选启动参数：
+
+```bash
+# 已确认 Desktop 无需重新构建
+python scripts/dev.py --no-build
+
+# 打开 Chromium DevTools
+python scripts/dev.py --devtools
+
+# 使用独立原生播放窗口
+python scripts/dev.py --dedicated-player
+```
+
+FastAPI 文档位于 `http://127.0.0.1:8765/docs`。普通浏览器可访问 `http://127.0.0.1:5173` 管理数据，但原生播放需要 Qt Desktop。
 
 Windows PowerShell 激活虚拟环境时使用：
 
@@ -45,6 +60,9 @@ export AUTOANIME_BANGUMI__ACCESS_TOKEN=your-token
 ## 常用命令
 
 ```bash
+# 完整开发环境：自动构建并启动后端、前端和 Qt Desktop
+python scripts/dev.py
+
 # 后端开发服务器
 uvicorn backend.app.main:app --reload --port 8765
 

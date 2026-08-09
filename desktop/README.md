@@ -34,7 +34,13 @@ desktop/build/autoanime-player-probe --smoke-test --subtitle episode1.chs.ass ep
 
 ## Stage 3C/3D Desktop Shell
 
-构建完成后运行：
+日常开发推荐从仓库根目录使用单命令启动：
+
+```bash
+python scripts/dev.py
+```
+
+该命令会完成 Desktop 增量构建，启动 FastAPI、Vite 和 Qt Desktop，并统一管理退出。以下命令仅用于单独调试 Desktop：
 
 ```bash
 # 开发模式：要求 Vite 5173 与 FastAPI 8765 已启动
