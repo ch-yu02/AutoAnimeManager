@@ -1,6 +1,6 @@
 # AutoAnime
 
-单用户、本地运行的 Bangumi 自动追番与媒体管理器。当前已完成 Bangumi 数据层、本地媒体映射、Qt/libmpv 原生播放闭环，以及 magnet → qBittorrent → 媒体库原地登记 → 播放的手动下载闭环。
+单用户、本地运行的 Bangumi 自动追番与媒体管理器。当前已完成 Bangumi 数据层、本地媒体映射、Qt/libmpv 原生播放闭环、magnet → qBittorrent → 媒体库原地登记 → 播放的手动下载闭环，以及配置 RSS → 候选评分 → 用户选择下载的阶段 3 资源搜索闭环。
 
 ## 环境要求
 
@@ -122,6 +122,9 @@ GET  /api/playback/continue
 GET  /api/subjects/{id}/next-unwatched
 POST /api/episodes/{id}/mark-watched
 POST /api/episodes/{id}/mark-unwatched
+POST /api/releases/search
+GET  /api/releases/search/{id}
+POST /api/releases/candidates/{id}/download
 GET  /api/downloads
 POST /api/downloads
 POST /api/downloads/{id}/pause
@@ -134,7 +137,7 @@ DELETE /api/downloads/{id}
 
 媒体扫描以路径、大小和修改时间判断未变化文件，只对新增或变化文件执行部分哈希、可选 `ffprobe` 和文件名解析；仅在疑似重复时计算完整哈希。低置信度、批量文件、manifest 冲突和多主文件进入审核队列。人工关联默认锁定，并写入同目录 `manifest.json`，后续扫描不会覆盖。
 
-在 Subject 的 Episode 行点击“下载”并粘贴完整 magnet、40 位十六进制或 32 位 Base32 BTIH 特征码即可创建任务。任务以 `autoanime` 分类、`bgm-{subject_id}` 和 `job-{job_id}` 标签提交；程序重启后会继续同步未完成任务。视频直接下载到第一媒体库目录下的 Subject 文件夹，完成后原地使用 `DOWNLOAD_JOB` 关联并写入 manifest；合集、文件数量不符或疑似单文件多集会原地进入 Library Review。成功导入不会自动清理任务。手动“仅删除下载任务”会保留媒体文件，“删除任务及本地文件”会同时删除媒体文件；两种操作都会删除 qBittorrent 任务和客户端记录，失败任务遵循相同规则。
+在 Subject 的 Episode 行点击“搜索”会依次将 Bangumi 中文名、原名和 aliases 代入 `release_search.rss_url_template`，自动读取对应的 KissSub 关键词 RSS，合并并去重结果，不需要逐条配置番剧订阅。系统解析条目、季度、Part、集数、字幕组、分辨率、编码、语言和批量信息，并保存候选的 score、匹配理由和排除理由；`REJECT` 仅保存在数据库用于诊断，不会显示在客户端。用户点击“选择并下载”后，候选 magnet 会复用现有 DownloadJob/qBittorrent 闭环；系统不会因为评分自动提交下载。手动 magnet、40 位十六进制或 32 位 Base32 BTIH 特征码仍可直接调用下载 API。任务以 `autoanime` 分类、`bgm-{subject_id}` 和 `job-{job_id}` 标签提交；程序重启后会继续同步未完成任务。视频直接下载到第一媒体库目录下的 Subject 文件夹，完成后原地使用 `DOWNLOAD_JOB` 关联并写入 manifest；合集、文件数量不符或疑似单文件多集会原地进入 Library Review。成功导入不会自动清理任务。
 
 Qt Desktop 通过 libmpv 直接播放本地媒体，不进行网页转码；支持内封/外挂字幕、音轨切换、完整时间轴跳转和续播。播放、暂停、跳转、停止及正常结束时会保存进度。有效播放不足 60 秒不会覆盖旧进度；播放达到 90%、剩余不超过 5 分钟或正常播完时自动标记已看，手动已看/未看优先于自动判断。下一集仅在同一 Subject 的 MAIN 章节中选择已有本地文件的后续最小集数，文件删除后观看历史仍保留。
 

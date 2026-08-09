@@ -30,6 +30,7 @@ class QmlBackend final : public QObject {
     Q_PROPERTY(QVariantMap scanStatus READ scanStatus NOTIFY libraryChanged)
     Q_PROPERTY(QVariantMap settings READ settings NOTIFY settingsChanged)
     Q_PROPERTY(QVariantList downloads READ downloads NOTIFY downloadsChanged)
+    Q_PROPERTY(QVariantMap releaseSearch READ releaseSearch NOTIFY releaseSearchChanged)
 
 public:
     explicit QmlBackend(QUrl baseUrl, QObject *parent = nullptr);
@@ -48,6 +49,7 @@ public:
     QVariantMap scanStatus() const { return m_scanStatus; }
     QVariantMap settings() const { return m_settings; }
     QVariantList downloads() const { return m_downloads; }
+    QVariantMap releaseSearch() const { return m_releaseSearch; }
 
     Q_INVOKABLE void loadHome();
     Q_INVOKABLE void loadSubjects(const QString &collectionType, bool localOnly);
@@ -61,6 +63,8 @@ public:
     Q_INVOKABLE void resumeDownload(const QString &jobId);
     Q_INVOKABLE void retryDownload(const QString &jobId);
     Q_INVOKABLE void deleteDownload(const QString &jobId, bool deleteFiles);
+    Q_INVOKABLE void searchReleases(qint64 episodeId);
+    Q_INVOKABLE void downloadReleaseCandidate(const QString &candidateId);
     Q_INVOKABLE void startLibraryScan();
     Q_INVOKABLE void rematchReview();
     Q_INVOKABLE void ignoreFile(qint64 fileId, bool ignored);
@@ -94,6 +98,7 @@ signals:
     void libraryChanged();
     void settingsChanged();
     void downloadsChanged();
+    void releaseSearchChanged();
 
 private:
     using Handler = std::function<void(const QVariant &)>;
@@ -121,6 +126,7 @@ private:
     QVariantMap m_scanStatus;
     QVariantMap m_settings;
     QVariantList m_downloads;
+    QVariantMap m_releaseSearch;
 };
 
 } // namespace autoanime

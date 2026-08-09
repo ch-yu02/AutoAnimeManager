@@ -50,6 +50,20 @@ class QBittorrentConfig(BaseModel):
     poll_interval_seconds: float = Field(default=3.0, ge=0.5, le=60)
 
 
+class ReleaseSearchConfig(BaseModel):
+    provider: Literal["kisssub_rss"] = "kisssub_rss"
+    rss_url: str = "https://www.kisssub.org/rss.xml"
+    rss_url_template: str = "https://www.kisssub.org/rss-{query}.xml"
+    timeout: float = Field(default=15.0, gt=0, le=120)
+    max_results: int = Field(default=100, ge=1, le=500)
+    max_query_terms: int = Field(default=3, ge=1, le=10)
+    preferred_groups: list[str] = Field(default_factory=list)
+    preferred_language: str = ""
+    preferred_resolution: str = "1080p"
+    preferred_codec: str = ""
+    allow_batch: bool = False
+
+
 class PlayerConfig(BaseModel):
     progress_save_interval_seconds: float = Field(default=15.0, ge=1, le=300)
     minimum_progress_seconds: float = Field(default=60.0, ge=0, le=600)
@@ -96,6 +110,7 @@ class AppSettings(BaseSettings):
     database: DatabaseConfig = DatabaseConfig()
     bangumi: BangumiConfig = BangumiConfig()
     qbittorrent: QBittorrentConfig = QBittorrentConfig()
+    release_search: ReleaseSearchConfig = ReleaseSearchConfig()
     player: PlayerConfig = PlayerConfig()
     storage: StorageConfig = StorageConfig()
     scheduler: SchedulerConfig = SchedulerConfig()

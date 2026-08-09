@@ -235,6 +235,38 @@ void QmlBackend::deleteDownload(const QString &jobId, bool deleteFiles)
     });
 }
 
+void QmlBackend::searchReleases(qint64 episodeId)
+{
+    m_releaseSearch.clear();
+    emit releaseSearchChanged();
+    send("POST", QStringLiteral("api/releases/search"), {
+        {QStringLiteral("episode_id"), episodeId},
+    }, [this](const QVariant &value) {
+        m_releaseSearch = value.toMap();
+        emit releaseSearchChanged();
+    });
+}
+
+void QmlBackend::downloadReleaseCandidate(const QString &candidateId)
+{
+    send("POST", QStringLiteral("api/releases/candidates/%1/download").arg(candidateId), {},
+        [this](const QVariant &) {
+            setNotice(QStringLiteral("已从候选创建下载任务"));
+            const QString searchId = m_releaseSearch.value(QStringLiteral("id")).toString();
+            if (!searchId.isEmpty()) {
+                send("GET", QStringLiteral("api/releases/search/%1").arg(searchId), {},
+                    [this](const QVariant &value) {
+                        m_releaseSearch = value.toMap();
+                        emit releaseSearchChanged();
+                    });
+            }
+            loadDownloads();
+            if (!m_subject.isEmpty()) {
+                loadSubject(m_subject.value(QStringLiteral("id")).toLongLong());
+            }
+        });
+}
+
 void QmlBackend::startLibraryScan()
 {
     send("POST", QStringLiteral("api/library/scan"), {}, [this](const QVariant &value) {

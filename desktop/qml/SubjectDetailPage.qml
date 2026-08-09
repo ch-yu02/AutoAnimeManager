@@ -8,6 +8,20 @@ Page {
     signal back()
     signal playEpisode(int id, bool fromStart, var episodes, string title)
     property var downloadEpisode: null
+    property var searchEpisode: null
+
+    function formatSize(bytes) {
+        if (!bytes)
+            return "大小未知"
+        const units = ["B", "KiB", "MiB", "GiB", "TiB"]
+        let value = Number(bytes)
+        let unit = 0
+        while (value >= 1024 && unit < units.length - 1) {
+            value /= 1024
+            unit += 1
+        }
+        return value.toFixed(value >= 10 || unit === 0 ? 0 : 1) + " " + units[unit]
+    }
     function jobForEpisode(episodeId) {
         for (let i = 0; i < backend.downloads.length; ++i) {
             if ((backend.downloads[i].episode_ids || []).indexOf(episodeId) >= 0)
@@ -90,7 +104,17 @@ Page {
                             font.pixelSize: 12
                         }
                         Button {
-                            text: "下载"
+                            text: "搜索"
+                            visible: modelData.local_status !== "READY" && downloadJob === null
+                            enabled: !backend.busy
+                            onClicked: {
+                                root.searchEpisode = modelData
+                                candidateDialog.open()
+                                backend.searchReleases(modelData.id)
+                            }
+                        }
+                        Button {
+                            text: "磁力"
                             visible: modelData.local_status !== "READY" && downloadJob === null
                             onClicked: {
                                 root.downloadEpisode = modelData
@@ -126,6 +150,108 @@ Page {
                 Layout.preferredHeight: 110
                 placeholderText: "magnet:?xt=urn:btih:… 或 40 位特征码"
                 wrapMode: TextEdit.WrapAnywhere
+            }
+        }
+    }
+    Dialog {
+        id: candidateDialog
+        anchors.centerIn: parent
+        width: Math.min(900, root.width - 60)
+        height: Math.min(720, root.height - 60)
+        title: root.searchEpisode ? "Episode " + root.searchEpisode.display_number + " 资源候选" : "资源候选"
+        modal: true
+        standardButtons: Dialog.Close
+
+        contentItem: ColumnLayout {
+            spacing: 12
+            Label {
+                Layout.fillWidth: true
+                text: backend.releaseSearch.id
+                    ? "Provider：" + backend.releaseSearch.provider + " · "
+                        + (backend.releaseSearch.candidates || []).length + " 个可选候选"
+                    : "正在搜索配置的 RSS…"
+                color: "#93a1b2"
+            }
+            BusyIndicator {
+                Layout.alignment: Qt.AlignHCenter
+                running: !backend.releaseSearch.id && backend.busy
+                visible: running
+            }
+            Label {
+                Layout.fillWidth: true
+                visible: backend.releaseSearch.id && (backend.releaseSearch.candidates || []).length === 0
+                text: "没有满足匹配条件的候选资源"
+                color: "#93a1b2"
+                horizontalAlignment: Text.AlignHCenter
+            }
+            ScrollView {
+                id: candidateScroll
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                contentWidth: availableWidth
+                ColumnLayout {
+                    width: candidateScroll.availableWidth
+                    spacing: 10
+                    Repeater {
+                        model: backend.releaseSearch.candidates || []
+                        delegate: Rectangle {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: candidateContent.implicitHeight + 24
+                            radius: 8
+                            color: "#121a25"
+                            ColumnLayout {
+                                id: candidateContent
+                                anchors.fill: parent
+                                anchors.margins: 12
+                                spacing: 8
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: modelData.title
+                                        color: "#f2f5f8"
+                                        font.weight: Font.DemiBold
+                                        wrapMode: Text.Wrap
+                                    }
+                                    Label {
+                                        text: modelData.decision + " · " + Math.round(modelData.score)
+                                        color: modelData.decision === "AUTO_ACCEPT" ? "#72d5b4"
+                                            : "#ffd18a"
+                                    }
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    property var parsed: modelData.parsed || ({})
+                                    text: (parsed.release_group || "字幕组未知") + " · "
+                                        + (parsed.resolution || "分辨率未知") + " · "
+                                        + (parsed.codec || "编码未知") + " · "
+                                        + (parsed.subtitle_language || "语言未知") + " · "
+                                        + root.formatSize(parsed.size_bytes)
+                                    color: "#93a1b2"
+                                    wrapMode: Text.Wrap
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    visible: (modelData.match_reasons || []).length > 0
+                                    text: "匹配：" + (modelData.match_reasons || []).join("；")
+                                    color: "#72d5b4"
+                                    wrapMode: Text.Wrap
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Item { Layout.fillWidth: true }
+                                    Button {
+                                        text: modelData.download_job_id ? "已创建下载" : "选择并下载"
+                                        highlighted: true
+                                        enabled: modelData.downloadable && !modelData.download_job_id && !backend.busy
+                                        onClicked: backend.downloadReleaseCandidate(modelData.id)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
