@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from backend.app.config import get_settings, public_settings
 from backend.app.modules.bangumi.client import BangumiClient
 from backend.app.modules.bangumi.errors import BangumiError
+from backend.app.modules.download.qbittorrent import QBittorrentAdapter, QBittorrentError
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -28,6 +29,9 @@ class SettingsPatch(BaseModel):
     library_roots: list[str] | None = None
     auto_play_next: bool | None = None
     bangumi_writeback_enabled: bool | None = None
+    qbittorrent_base_url: str | None = Field(default=None, min_length=1)
+    qbittorrent_username: str | None = Field(default=None, min_length=1)
+    qbittorrent_password: str | None = Field(default=None, min_length=1)
 
 
 @router.get("")
@@ -84,6 +88,21 @@ async def update_settings(payload: SettingsPatch) -> dict[str, object]:
             player["auto_play_next"] = payload.auto_play_next
         if payload.bangumi_writeback_enabled is not None:
             player["bangumi_writeback_enabled"] = payload.bangumi_writeback_enabled
+    if any(value is not None for value in (
+        payload.qbittorrent_base_url, payload.qbittorrent_username, payload.qbittorrent_password
+    )):
+        qbittorrent = raw.setdefault("qbittorrent", {})
+        if not isinstance(qbittorrent, dict):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"code": "invalid_config", "message": "qbittorrent 配置必须是对象"},
+            )
+        if payload.qbittorrent_base_url is not None:
+            qbittorrent["base_url"] = payload.qbittorrent_base_url.strip().rstrip("/")
+        if payload.qbittorrent_username is not None:
+            qbittorrent["username"] = payload.qbittorrent_username.strip()
+        if payload.qbittorrent_password is not None:
+            qbittorrent["password"] = payload.qbittorrent_password
     config_path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path: Path | None = None
     try:
@@ -133,10 +152,15 @@ async def test_qbittorrent() -> ConnectionTestResult:
             status="not_configured",
             detail="请先配置 qbittorrent.username 和 qbittorrent.password",
         )
+    adapter = QBittorrentAdapter(lambda: get_settings().qbittorrent)
+    try:
+        version = await adapter.version()
+    except QBittorrentError as exc:
+        return ConnectionTestResult(service="qbittorrent", status="unavailable", detail=str(exc))
+    finally:
+        await adapter.close()
     return ConnectionTestResult(
-        service="qbittorrent",
-        status="not_implemented",
-        detail="连接参数已就绪；真实 WebUI API 检查将在下载阶段实现",
+        service="qbittorrent", status="ok", detail=f"qBittorrent WebUI API 检查通过：{version}"
     )
 
 

@@ -68,7 +68,12 @@ def _file_view(session, media: MediaFile) -> dict[str, object]:
         "duration_seconds": media.duration_seconds, "video_codec": media.video_codec,
         "resolution": media.resolution, "exists": media.exists, "ignored": media.ignored,
         "review_reason": media.review_reason, "parse_result": parsed,
-        "subject": ({"id": subject.id, "name": subject.name_cn or subject.name} if subject else None),
+        "subject": ({
+            "id": subject.id,
+            "name": subject.name_cn or subject.name,
+            "image_url": subject.image_url,
+        } if subject else None),
+        "created_at": media.created_at,
         "subject_mapping_source": media.subject_mapping_source,
         "subject_confidence": media.subject_confidence,
         "subject_reasons": subject_reasons,
@@ -113,6 +118,18 @@ async def list_files(
             query = query.where(MediaFile.ignored.is_(ignored))
         if exists is not None:
             query = query.where(MediaFile.exists.is_(exists))
+        return [_file_view(session, media) for media in session.scalars(query)]
+
+
+@router.get("/recent")
+async def recent_files(limit: int = Query(default=12, ge=1, le=50)) -> list[dict[str, object]]:
+    with session_scope() as session:
+        query = (
+            select(MediaFile)
+            .where(MediaFile.exists.is_(True), MediaFile.ignored.is_(False))
+            .order_by(MediaFile.created_at.desc(), MediaFile.id.desc())
+            .limit(limit)
+        )
         return [_file_view(session, media) for media in session.scalars(query)]
 
 

@@ -1,0 +1,97 @@
+#include "backend/BackendClient.h"
+#include "player/MpvCore.h"
+#include "player/MpvVideoItem.h"
+#include "player/PlayerController.h"
+#include "qml/QmlBackend.h"
+#include "qml/QmlPlayer.h"
+
+#include <QCommandLineParser>
+#include <QGuiApplication>
+#include <QQmlApplicationEngine>
+#include <QQmlContext>
+#include <QQuickWindow>
+#include <QSGRendererInterface>
+#include <QSurfaceFormat>
+#include <QNetworkProxy>
+
+#include <clocale>
+
+int main(int argc, char *argv[])
+{
+    QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
+    QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
+
+    QSurfaceFormat format;
+    format.setRenderableType(QSurfaceFormat::OpenGL);
+    format.setVersion(3, 3);
+    format.setProfile(QSurfaceFormat::CoreProfile);
+    format.setSwapBehavior(QSurfaceFormat::DoubleBuffer);
+    QSurfaceFormat::setDefaultFormat(format);
+
+    QGuiApplication application(argc, argv);
+    // The desktop client only talks to the local FastAPI service and loads
+    // public poster URLs. Avoid libproxy worker crashes caused by malformed
+    // desktop proxy environment state; backend integrations keep their own
+    // independently configured network stack.
+    QNetworkProxy::setApplicationProxy(QNetworkProxy::NoProxy);
+    std::setlocale(LC_NUMERIC, "C");
+    QCoreApplication::setApplicationName(QStringLiteral("AutoAnime"));
+    QCoreApplication::setApplicationVersion(QStringLiteral("0.2.0"));
+
+    QCommandLineParser parser;
+    parser.setApplicationDescription(QStringLiteral("AutoAnime Qt Quick 原生客户端"));
+    parser.addHelpOption();
+    parser.addVersionOption();
+    QCommandLineOption backendOption(
+        QStringList{QStringLiteral("backend-url")},
+        QStringLiteral("FastAPI 地址"),
+        QStringLiteral("url"),
+        QStringLiteral("http://127.0.0.1:8765/")
+    );
+    QCommandLineOption playEpisodeOption(
+        QStringList{QStringLiteral("play-episode")},
+        QStringLiteral("启动后直接播放指定 Episode（用于性能基线和验收）"),
+        QStringLiteral("id")
+    );
+    parser.addOption(backendOption);
+    parser.addOption(playEpisodeOption);
+    parser.process(application);
+
+    const QUrl backendUrl(parser.value(backendOption));
+    if (!backendUrl.isValid()) {
+        qCritical("FastAPI 地址无效");
+        return 2;
+    }
+
+    try {
+        autoanime::MpvCore core;
+        autoanime::MpvVideoItem::setCore(&core);
+        autoanime::BackendClient playbackBackend(backendUrl);
+        autoanime::PlayerController controller(&core, &playbackBackend);
+        autoanime::QmlPlayer player(&controller, &core);
+        autoanime::QmlBackend backend(backendUrl);
+        QObject::connect(&core, &autoanime::MpvCore::diagnosticsChanged, [](const QString &hwdec, qint64 dropped) {
+            qInfo("libmpv diagnostics: hwdec=%s dropped_frames=%lld", qUtf8Printable(hwdec), static_cast<long long>(dropped));
+        });
+
+        qmlRegisterType<autoanime::MpvVideoItem>("AutoAnime", 1, 0, "MpvVideoItem");
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+        engine.rootContext()->setContextProperty(QStringLiteral("player"), &player);
+        engine.rootContext()->setContextProperty(
+            QStringLiteral("startupEpisodeId"),
+            parser.value(playEpisodeOption).toLongLong()
+        );
+        QObject::connect(&application, &QCoreApplication::aboutToQuit, &controller, &autoanime::PlayerController::shutdown);
+        engine.load(QUrl(QStringLiteral("qrc:/AutoAnime/qml/Main.qml")));
+        if (engine.rootObjects().isEmpty()) {
+            return 1;
+        }
+        const int result = application.exec();
+        autoanime::MpvVideoItem::setCore(nullptr);
+        return result;
+    } catch (const std::exception &error) {
+        qCritical("无法启动 AutoAnime：%s", error.what());
+        return 1;
+    }
+}

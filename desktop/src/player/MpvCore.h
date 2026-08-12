@@ -27,6 +27,7 @@ public:
     [[nodiscard]] double position() const noexcept { return m_position; }
     [[nodiscard]] double duration() const noexcept { return m_duration; }
     [[nodiscard]] double volume() const noexcept { return m_volume; }
+    [[nodiscard]] double speed() const noexcept { return m_speed; }
 
     void loadFile(const QString &path);
     void setPaused(bool paused);
@@ -35,6 +36,7 @@ public:
     void seekRelative(double seconds);
     void setVolume(double value);
     void setMuted(bool muted);
+    void setSpeed(double value);
     void selectAudioTrack(int id);
     void selectSubtitleTrack(int id);
     void addSubtitle(const QString &path);
@@ -48,6 +50,8 @@ signals:
     void pauseChanged(bool paused);
     void volumeChanged(double value);
     void muteChanged(bool muted);
+    void speedChanged(double value);
+    void diagnosticsChanged(const QString &hwdec, qint64 droppedFrames);
     void trackListChanged(const QList<autoanime::MediaTrack> &tracks);
     void endFile(int reason, const QString &detail);
     void playbackError(const QString &message);
@@ -74,6 +78,9 @@ private:
     double m_position{0.0};
     double m_duration{0.0};
     double m_volume{100.0};
+    double m_speed{1.0};
+    qint64 m_droppedFrames{0};
+    QString m_hwdec;
     bool m_paused{false};
     bool m_muted{false};
 };

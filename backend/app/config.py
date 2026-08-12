@@ -46,6 +46,22 @@ class QBittorrentConfig(BaseModel):
     username: str = ""
     password: SecretStr = SecretStr("")
     category: str = "autoanime"
+    timeout: float = Field(default=10.0, gt=0, le=120)
+    poll_interval_seconds: float = Field(default=3.0, ge=0.5, le=60)
+
+
+class ReleaseSearchConfig(BaseModel):
+    provider: Literal["kisssub_rss"] = "kisssub_rss"
+    rss_url: str = "https://www.kisssub.org/rss.xml"
+    rss_url_template: str = "https://www.kisssub.org/rss-{query}.xml"
+    timeout: float = Field(default=15.0, gt=0, le=120)
+    max_results: int = Field(default=100, ge=1, le=500)
+    max_query_terms: int = Field(default=3, ge=1, le=10)
+    preferred_groups: list[str] = Field(default_factory=list)
+    preferred_language: str = ""
+    preferred_resolution: str = "1080p"
+    preferred_codec: str = ""
+    allow_batch: bool = False
 
 
 class PlayerConfig(BaseModel):
@@ -58,7 +74,6 @@ class PlayerConfig(BaseModel):
 
 
 class StorageConfig(BaseModel):
-    download_path: Path = Path("data/downloads")
     library_path: Path = Path("data/library")
     library_roots: list[Path] = Field(default_factory=list)
     quarantine_path: Path = Path("data/quarantine")
@@ -95,6 +110,7 @@ class AppSettings(BaseSettings):
     database: DatabaseConfig = DatabaseConfig()
     bangumi: BangumiConfig = BangumiConfig()
     qbittorrent: QBittorrentConfig = QBittorrentConfig()
+    release_search: ReleaseSearchConfig = ReleaseSearchConfig()
     player: PlayerConfig = PlayerConfig()
     storage: StorageConfig = StorageConfig()
     scheduler: SchedulerConfig = SchedulerConfig()
@@ -154,7 +170,6 @@ def ensure_runtime_directories(settings: AppSettings) -> None:
         Path("data/cache"),
         Path("data/logs"),
         Path("data/backups"),
-        settings.storage.download_path,
         settings.storage.quarantine_path,
         *settings.storage.effective_library_roots(),
     ]

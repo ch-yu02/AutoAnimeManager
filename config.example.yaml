@@ -20,6 +20,24 @@ qbittorrent:
   username: ""
   password: ""
   category: autoanime
+  timeout: 10
+  poll_interval_seconds: 3
+
+release_search:
+  provider: kisssub_rss
+  # 根据 Bangumi 条目名称自动生成专属 RSS，不需要逐条维护链接。
+  rss_url_template: https://www.kisssub.org/rss-{query}.xml
+  # rss_url 仅在 rss_url_template 留空时作为固定 RSS 使用。
+  rss_url: https://www.kisssub.org/rss.xml
+  timeout: 15
+  max_results: 100
+  # 自动尝试中文名、原名和 Bangumi aliases，避免站点关键词差异需要手工映射。
+  max_query_terms: 3
+  preferred_groups: []
+  preferred_language: ""
+  preferred_resolution: 1080p
+  preferred_codec: ""
+  allow_batch: false
 
 player:
   progress_save_interval_seconds: 15
@@ -30,7 +48,7 @@ player:
   bangumi_writeback_enabled: false
 
 storage:
-  download_path: data/downloads
+  # qBittorrent 任务直接下载到第一个媒体库根目录下的 Subject 文件夹。
   # 可配置多个递归扫描根目录；未设置时兼容使用 library_path。
   library_path: data/library
   library_roots:

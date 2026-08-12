@@ -186,8 +186,8 @@ void PlayerController::onFileLoaded(const QString &path)
         m_core->seekAbsolute(m_pendingPosition);
     }
     // mpv keeps the pause property across loadfile calls. A previous paused
-    // episode must not leave a newly opened or resumed episode paused while the
-    // Vue controls still assume active playback.
+    // episode must not leave a newly opened or resumed episode paused while
+    // the QML controls show active playback.
     m_core->setPaused(false);
     m_progressTimer.start();
     emit playerReady(m_episodeId);

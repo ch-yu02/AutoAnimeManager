@@ -29,7 +29,7 @@ class EpisodeMatch:
     reason: str
 
 
-def _subject_titles(subject: Subject) -> set[str]:
+def subject_titles(subject: Subject) -> set[str]:
     try:
         aliases = json.loads(subject.aliases)
     except (json.JSONDecodeError, TypeError):
@@ -38,7 +38,7 @@ def _subject_titles(subject: Subject) -> set[str]:
     return {title for value in values if isinstance(value, str) and (title := normalize_title(value))}
 
 
-def _scope_number(value: str, kind: str) -> int | None:
+def scope_number(value: str, kind: str) -> int | None:
     patterns = {
         "season": [
             r"\bs\s*(\d+)\b",
@@ -57,7 +57,7 @@ def _scope_number(value: str, kind: str) -> int | None:
     return None
 
 
-def _base_title(value: str) -> str:
+def base_title(value: str) -> str:
     """Remove season/part qualifiers so short release titles can reach split subjects."""
     value = re.sub(r"\bs\s*\d+\b|\bseason\s*\d+\b|\b\d+(?:st|nd|rd|th)\s+season\b", " ", value, flags=re.I)
     value = re.sub(r"\bpart\s*\d+\b|(?:第\s*)?\d+\s*(?:季|期|部|篇)|(?:第\s*)?[二三四五六七八九十]\s*(?:季|期)", " ", value, flags=re.I)
@@ -66,16 +66,16 @@ def _base_title(value: str) -> str:
 
 
 def _scope_is_compatible(parsed: ParsedFilename, title: str) -> bool:
-    file_season = parsed.season or _scope_number(parsed.normalized_title, "season")
-    title_season = _scope_number(title, "season")
+    file_season = parsed.season or scope_number(parsed.normalized_title, "season")
+    title_season = scope_number(title, "season")
     if file_season and file_season > 1 and title_season != file_season:
         return False
-    file_part = _scope_number(parsed.normalized_title, "part")
-    title_part = _scope_number(title, "part")
+    file_part = scope_number(parsed.normalized_title, "part")
+    title_part = scope_number(title, "part")
     return not file_part or title_part == file_part
 
 
-def _trailing_scope(value: str) -> int | None:
+def trailing_scope(value: str) -> int | None:
     match = re.search(r"\s(\d{1,2})$", value)
     if not match:
         return None
@@ -83,6 +83,20 @@ def _trailing_scope(value: str) -> int | None:
     if re.search(r"\b(?:part|cour)$", prefix, re.I):
         return None
     return int(match.group(1))
+
+
+def subject_scope_numbers(subject: Subject, kind: str) -> set[int]:
+    values: set[int] = set()
+    for title in subject_titles(subject):
+        explicit = scope_number(title, kind)
+        if explicit is not None:
+            values.add(explicit)
+            continue
+        if kind == "season":
+            trailing = trailing_scope(title)
+            if trailing is not None and trailing <= 10:
+                values.add(trailing)
+    return values
 
 
 def _directory_bangumi_id(path: Path) -> int | None:
@@ -98,17 +112,17 @@ def _title_candidates(session: Session, path: Path, parsed: ParsedFilename) -> l
     source_titles = [(parsed.normalized_title, "文件名"), *((name, "父目录") for name in parent_names if name)]
     candidates: list[MatchCandidate] = []
     for subject in session.scalars(select(Subject).where(or_(Subject.collection_type.is_not(None), Subject.keep_forever.is_(True)))):
-        subject_titles = _subject_titles(subject)
-        file_season = parsed.season or _scope_number(parsed.normalized_title, "season")
+        titles = subject_titles(subject)
+        file_season = parsed.season or scope_number(parsed.normalized_title, "season")
         if file_season and file_season > 1 and not any(
-            _scope_number(title, "season") == file_season or _trailing_scope(title) == file_season
-            for title in subject_titles
+            scope_number(title, "season") == file_season or trailing_scope(title) == file_season
+            for title in titles
         ):
             continue
         best = 0.0
         reason = ""
-        for title in subject_titles:
-            title_season = _scope_number(title, "season")
+        for title in titles:
+            title_season = scope_number(title, "season")
             if title_season and file_season and title_season != file_season:
                 continue
             for source_title, source_name in source_titles:
@@ -120,8 +134,8 @@ def _title_candidates(session: Session, path: Path, parsed: ParsedFilename) -> l
                     best, reason = exact_confidence, f"{source_name}标题完全匹配"
                 elif title in source_title and contains_confidence > best:
                     best, reason = contains_confidence, f"{source_name}包含条目标题"
-                source_base, title_base = _base_title(source_title), _base_title(title)
-                if file_season and _trailing_scope(title_base) == file_season:
+                source_base, title_base = base_title(source_title), base_title(title)
+                if file_season and trailing_scope(title_base) == file_season:
                     title_base = re.sub(rf"\s{file_season}$", "", title_base)
                 if source_base == title_base and len(source_base) >= 8 and 0.99 > best:
                     best, reason = 0.99, f"{source_name}标题基名完全匹配"
@@ -146,7 +160,7 @@ def _main_episode_count(session: Session, subject_id: int) -> int:
     ) or 0)
 
 
-def _prequel_main_count(session: Session, subject_id: int, visited: set[int] | None = None) -> int:
+def prequel_main_count(session: Session, subject_id: int, visited: set[int] | None = None) -> int:
     visited = set() if visited is None else visited
     if subject_id in visited:
         return 0
@@ -159,9 +173,37 @@ def _prequel_main_count(session: Session, subject_id: int, visited: set[int] | N
     )
     if relation is None:
         return 0
-    return _prequel_main_count(session, relation.related_subject_id, visited) + _main_episode_count(
+    return prequel_main_count(session, relation.related_subject_id, visited) + _main_episode_count(
         session, relation.related_subject_id
     )
+
+
+def episode_number_candidates(session: Session, episode: Episode) -> dict[float, str]:
+    candidates: dict[float, str] = {}
+
+    def add(value: float | int | None, reason: str) -> None:
+        if value is not None:
+            candidates.setdefault(float(value), reason)
+
+    add(episode.sort_number, "Bangumi Episode 编号匹配")
+    try:
+        add(float(episode.display_number), "Bangumi Episode 显示编号匹配")
+    except ValueError:
+        pass
+    main_episodes = list(session.scalars(select(Episode).where(
+        Episode.subject_id == episode.subject_id,
+        Episode.episode_type == "MAIN",
+    )))
+    ordered = sorted(
+        main_episodes,
+        key=lambda item: (item.sort_number is None, item.sort_number or 0, item.id),
+    )
+    ordinal = next((index for index, item in enumerate(ordered, start=1) if item.id == episode.id), None)
+    add(ordinal, "季度内集数顺序匹配")
+    offset = prequel_main_count(session, episode.subject_id)
+    if offset and ordinal is not None:
+        add(offset + ordinal, "按前作累计集数换算匹配")
+    return candidates
 
 
 def _episode_match(session: Session, subject_id: int, parsed: ParsedFilename) -> EpisodeMatch | None:
@@ -186,11 +228,11 @@ def _episode_match(session: Session, subject_id: int, parsed: ParsedFilename) ->
     ordered = sorted(compatible, key=lambda episode: (episode.sort_number is None, episode.sort_number or 0, episode.id))
     number = int(parsed.episode_start)
     # Explicit season/part scope supports groups that restart numbering from 1.
-    if parsed.season is not None or _scope_number(parsed.normalized_title, "part") is not None:
+    if parsed.season is not None or scope_number(parsed.normalized_title, "part") is not None:
         if 1 <= number <= len(ordered):
             return EpisodeMatch(ordered[number - 1], 2, "按季度内集数顺序匹配")
     # Unscoped releases may continue numbering across sequel subjects.
-    offset = _prequel_main_count(session, subject_id)
+    offset = prequel_main_count(session, subject_id)
     local_number = number - offset
     if offset > 0 and 1 <= local_number <= len(ordered):
         return EpisodeMatch(ordered[local_number - 1], 2, "按前作累计集数换算匹配")
