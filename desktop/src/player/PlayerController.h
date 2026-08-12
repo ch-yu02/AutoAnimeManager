@@ -13,6 +13,8 @@ class MpvCore;
 class PlayerController final : public QObject {
     Q_OBJECT
 
+    friend class PlayerControllerActivityTest;
+
 public:
     explicit PlayerController(MpvCore *core, BackendClient *backend, QObject *parent = nullptr);
 
@@ -39,6 +41,7 @@ signals:
     void playbackStopped(qint64 episodeId);
     void playbackError(const QString &message);
     void watchedChanged(qint64 episodeId, bool watched);
+    void playbackActivityChanged(bool active);
 
 private slots:
     void onSessionCreated(
@@ -55,6 +58,8 @@ private slots:
     void onEndFile(int reason, const QString &detail);
     void onPositionChanged(double seconds);
     void onDurationChanged(double seconds);
+    void onPauseChanged(bool paused);
+    void onCorePlaybackError(const QString &message);
     void savePeriodicProgress();
     void onBackendError(quint64 requestId, const QString &operation, const QString &message);
 
@@ -65,6 +70,7 @@ private:
     void startEpisode(qint64 episodeId, bool fromStart);
     void requestTransition(int transition, bool ended = false);
     void finishTransition(qint64 nextEpisodeId = -1);
+    void updatePlaybackActivity();
 
     MpvCore *m_core;
     BackendClient *m_backend;
@@ -78,6 +84,8 @@ private:
     double m_pendingPosition{0.0};
     bool m_hasBackendDuration{false};
     bool m_waitingForFile{false};
+    bool m_fileLoaded{false};
+    bool m_playbackActive{false};
     bool m_closing{false};
     quint64 m_requestGeneration{0};
     quint64 m_progressRequestGeneration{0};

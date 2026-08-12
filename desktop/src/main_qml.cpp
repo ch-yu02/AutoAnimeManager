@@ -4,6 +4,7 @@
 #include "player/PlayerController.h"
 #include "qml/QmlBackend.h"
 #include "qml/QmlPlayer.h"
+#include "system/SleepInhibitor.h"
 
 #include <QCommandLineParser>
 #include <QGuiApplication>
@@ -67,9 +68,16 @@ int main(int argc, char *argv[])
         autoanime::MpvCore core;
         autoanime::MpvVideoItem::setCore(&core);
         autoanime::BackendClient playbackBackend(backendUrl);
+        autoanime::SleepInhibitor sleepInhibitor;
         autoanime::PlayerController controller(&core, &playbackBackend);
         autoanime::QmlPlayer player(&controller, &core);
         autoanime::QmlBackend backend(backendUrl);
+        QObject::connect(
+            &controller,
+            &autoanime::PlayerController::playbackActivityChanged,
+            &sleepInhibitor,
+            &autoanime::SleepInhibitor::setInhibited
+        );
         QObject::connect(&core, &autoanime::MpvCore::diagnosticsChanged, [](const QString &hwdec, qint64 dropped) {
             qInfo("libmpv diagnostics: hwdec=%s dropped_frames=%lld", qUtf8Printable(hwdec), static_cast<long long>(dropped));
         });

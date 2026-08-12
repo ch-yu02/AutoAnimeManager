@@ -38,10 +38,10 @@ PlayerController::PlayerController(MpvCore *core, BackendClient *backend, QObjec
     connect(m_core, &MpvCore::endFile, this, &PlayerController::onEndFile);
     connect(m_core, &MpvCore::positionChanged, this, &PlayerController::onPositionChanged);
     connect(m_core, &MpvCore::durationChanged, this, &PlayerController::onDurationChanged);
-    connect(m_core, &MpvCore::pauseChanged, this, &PlayerController::pauseChanged);
+    connect(m_core, &MpvCore::pauseChanged, this, &PlayerController::onPauseChanged);
     connect(m_core, &MpvCore::volumeChanged, this, &PlayerController::volumeChanged);
     connect(m_core, &MpvCore::trackListChanged, this, &PlayerController::trackListChanged);
-    connect(m_core, &MpvCore::playbackError, this, &PlayerController::playbackError);
+    connect(m_core, &MpvCore::playbackError, this, &PlayerController::onCorePlaybackError);
 }
 
 void PlayerController::playEpisode(qint64 episodeId, bool fromStart)
@@ -81,6 +81,8 @@ void PlayerController::seek(double seconds)
 void PlayerController::stop()
 {
     if (m_episodeId >= 0) {
+        m_fileLoaded = false;
+        updatePlaybackActivity();
         requestTransition(2);
     }
 }
@@ -88,6 +90,8 @@ void PlayerController::stop()
 void PlayerController::shutdown()
 {
     m_closing = true;
+    m_fileLoaded = false;
+    updatePlaybackActivity();
     m_pendingTransition = 0;
     m_transitionRequestId = 0;
     if (!m_sessionId.isEmpty()) {
@@ -189,6 +193,8 @@ void PlayerController::onFileLoaded(const QString &path)
     // episode must not leave a newly opened or resumed episode paused while
     // the QML controls show active playback.
     m_core->setPaused(false);
+    m_fileLoaded = true;
+    updatePlaybackActivity();
     m_progressTimer.start();
     emit playerReady(m_episodeId);
     emit playbackStarted(m_episodeId);
@@ -196,6 +202,8 @@ void PlayerController::onFileLoaded(const QString &path)
 
 void PlayerController::onEndFile(int reason, const QString &detail)
 {
+    m_fileLoaded = false;
+    updatePlaybackActivity();
     if (!detail.isEmpty()) {
         emit playbackError(detail);
     }
@@ -219,6 +227,19 @@ void PlayerController::onDurationChanged(double seconds)
     emit durationChanged(seconds);
 }
 
+void PlayerController::onPauseChanged(bool paused)
+{
+    emit pauseChanged(paused);
+    updatePlaybackActivity();
+}
+
+void PlayerController::onCorePlaybackError(const QString &message)
+{
+    m_fileLoaded = false;
+    updatePlaybackActivity();
+    emit playbackError(message);
+}
+
 void PlayerController::savePeriodicProgress()
 {
     saveProgress();
@@ -240,6 +261,8 @@ void PlayerController::closeSession()
 
 void PlayerController::resetSession()
 {
+    m_fileLoaded = false;
+    updatePlaybackActivity();
     m_progressTimer.stop();
     m_sessionId.clear();
     m_mediaPath.clear();
@@ -250,6 +273,16 @@ void PlayerController::resetSession()
     m_duration = 0.0;
     m_hasBackendDuration = false;
     m_waitingForFile = false;
+}
+
+void PlayerController::updatePlaybackActivity()
+{
+    const bool active = !m_closing && m_fileLoaded && !m_core->isPaused();
+    if (active == m_playbackActive) {
+        return;
+    }
+    m_playbackActive = active;
+    emit playbackActivityChanged(active);
 }
 
 void PlayerController::startEpisode(qint64 episodeId, bool fromStart)

@@ -9,7 +9,7 @@ set(CMAKE_AUTOMOC ON)
 
 include(CTest)
 find_package(PkgConfig REQUIRED)
-find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Network Qml Quick QuickControls2)
+find_package(Qt6 6.4 REQUIRED COMPONENTS Core DBus Gui Network Qml Quick QuickControls2)
 pkg_check_modules(MPV QUIET IMPORTED_TARGET mpv)
 if(TARGET PkgConfig::MPV)
     set(AUTOANIME_MPV_TARGET PkgConfig::MPV)
@@ -44,6 +44,8 @@ qt_add_executable(autoanime-desktop
     src/backend/BackendClient.h
     src/player/PlayerController.cpp
     src/player/PlayerController.h
+    src/system/SleepInhibitor.cpp
+    src/system/SleepInhibitor.h
     src/player/MpvVideoItem.cpp
     src/player/MpvVideoItem.h
     src/qml/QmlBackend.cpp
@@ -70,6 +72,7 @@ target_link_libraries(autoanime-desktop
     PRIVATE
         autoanime_player
         Qt6::Network
+        Qt6::DBus
         Qt6::Qml
         Qt6::Quick
         Qt6::QuickControls2
@@ -81,4 +84,40 @@ if(BUILD_TESTING)
     add_executable(autoanime-player-state-tests tests/test_player_state.cpp)
     target_link_libraries(autoanime-player-state-tests PRIVATE autoanime_player Qt6::Test)
     add_test(NAME autoanime-player-state-tests COMMAND autoanime-player-state-tests)
+
+    add_executable(autoanime-player-controller-activity-tests
+        tests/test_player_controller_activity.cpp
+        src/backend/BackendClient.cpp
+        src/backend/BackendClient.h
+        src/player/PlayerController.cpp
+        src/player/PlayerController.h
+    )
+    target_include_directories(autoanime-player-controller-activity-tests PRIVATE src)
+    target_link_libraries(
+        autoanime-player-controller-activity-tests
+        PRIVATE autoanime_player Qt6::Network Qt6::Test
+    )
+    target_compile_options(autoanime-player-controller-activity-tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(
+        NAME autoanime-player-controller-activity-tests
+        COMMAND autoanime-player-controller-activity-tests
+    )
+
+    add_executable(autoanime-sleep-inhibitor-tests
+        tests/test_sleep_inhibitor.cpp
+        src/system/SleepInhibitor.cpp
+        src/system/SleepInhibitor.h
+    )
+    target_include_directories(autoanime-sleep-inhibitor-tests PRIVATE src)
+    target_link_libraries(autoanime-sleep-inhibitor-tests PRIVATE Qt6::Core Qt6::DBus Qt6::Test)
+    target_compile_options(autoanime-sleep-inhibitor-tests PRIVATE -Wall -Wextra -Wpedantic)
+    find_program(DBUS_RUN_SESSION_EXECUTABLE dbus-run-session)
+    if(DBUS_RUN_SESSION_EXECUTABLE)
+        add_test(
+            NAME autoanime-sleep-inhibitor-tests
+            COMMAND ${DBUS_RUN_SESSION_EXECUTABLE} -- $<TARGET_FILE:autoanime-sleep-inhibitor-tests>
+        )
+    else()
+        add_test(NAME autoanime-sleep-inhibitor-tests COMMAND autoanime-sleep-inhibitor-tests)
+    endif()
 endif()
