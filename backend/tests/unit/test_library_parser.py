@@ -30,9 +30,15 @@ def test_normalization_keeps_season_markers_to_avoid_cross_season_merge() -> Non
 
 def test_bracketed_release_title_and_versioned_episode_are_cleaned() -> None:
     parsed = parse_filename("[Group][Ruri no Houseki][01v2][1080p][JPSC].mp4")
+    standalone_version = parse_filename(
+        "[KitaujiSub] Uma Musume - Pretty Derby - Road to the Top "
+        "[03][Webrip][1080P][HEVC_AAC][CHS][v2].mkv"
+    )
 
     assert parsed.episode_start == 1
     assert parsed.normalized_title == "ruri no houseki"
+    assert standalone_version.episode_start == 3
+    assert standalone_version.normalized_title == "uma musume pretty derby road to the top"
     assert normalize_release_title("[Group] Ruri no Houseki [Ma10p_1080p][x265_flac]") == "ruri no houseki"
 
 

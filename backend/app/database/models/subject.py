@@ -27,6 +27,8 @@ class Subject(Base):
     collection_type: Mapped[str | None] = mapped_column(String(30), index=True, nullable=True)
     collection_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    metadata_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    relations_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     keep_forever: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

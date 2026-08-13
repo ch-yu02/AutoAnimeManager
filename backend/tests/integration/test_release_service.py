@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, date, datetime, timedelta
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,7 +12,7 @@ from alembic.config import Config
 from sqlalchemy import select
 
 from backend.app.config import ReleaseSearchConfig, get_settings
-from backend.app.database.models import Episode, ReleaseCandidate, Subject, SubjectRelation
+from backend.app.database.models import Episode, EpisodeFile, MediaFile, ReleaseCandidate, Subject, SubjectRelation
 from backend.app.database.session import get_engine, session_scope
 from backend.app.modules.release.schemas import RawRelease
 from backend.app.modules.release.service import ReleaseSearchService
@@ -27,7 +29,13 @@ class FakeProvider:
 
 
 class FakeDownloadService:
-    async def create(self, episode_id: int, magnet: str) -> dict[str, object]:
+    def __init__(self) -> None:
+        self.created: list[tuple[int, str, list[int] | None]] = []
+
+    async def create(
+        self, episode_id: int, magnet: str, *, replacement_media_ids=None
+    ) -> dict[str, object]:
+        self.created.append((episode_id, magnet, replacement_media_ids))
         return {"id": "download-job", "episode_id": episode_id, "magnet": magnet}
 
 
@@ -95,7 +103,8 @@ async def test_search_persists_candidates_and_selection(tmp_path: Path, monkeypa
     settings = SimpleNamespace(
         release_search=ReleaseSearchConfig(preferred_resolution="1080p", preferred_codec="HEVC")
     )
-    service = ReleaseSearchService(provider, FakeDownloadService(), lambda: settings)
+    downloads = FakeDownloadService()
+    service = ReleaseSearchService(provider, downloads, lambda: settings)
 
     result = await asyncio.wait_for(service.search(episode_id), timeout=5)
     candidate = result["candidates"][0]
@@ -105,6 +114,13 @@ async def test_search_persists_candidates_and_selection(tmp_path: Path, monkeypa
     assert candidate["decision"] == "AUTO_ACCEPT"
     assert candidate["downloadable"] is True
 
+    debugged = service.debug_auto_select(result["id"])
+    debug_candidate = debugged["candidates"][0]
+    assert debug_candidate["debug_selected_at"] is not None
+    assert debug_candidate["selected_at"] is None
+    assert debug_candidate["download_job_id"] is None
+    assert downloads.created == []
+
     downloaded = await service.download_candidate(candidate["id"])
     assert downloaded["download"]["id"] == "download-job"
     with session_scope() as session:
@@ -112,9 +128,44 @@ async def test_search_persists_candidates_and_selection(tmp_path: Path, monkeypa
         assert stored is not None
         assert stored.download_job_id == "download-job"
         assert stored.selected_at is not None
+        assert stored.debug_selected_at is not None
         assert len(list(session.scalars(
             select(ReleaseCandidate).where(ReleaseCandidate.episode_id == episode_id)
         ))) == 2
+    _reset()
+
+
+@pytest.mark.anyio
+async def test_debug_auto_select_marks_nothing_without_auto_accept(
+    tmp_path: Path, monkeypatch
+) -> None:
+    episode_id = _prepare(tmp_path, monkeypatch)
+    provider = FakeProvider([RawRelease(
+        source_id="manual",
+        title="[TestGroup] 测试动画 - 06 [1080p]",
+        description="",
+        release_url="https://example.test/manual",
+        magnet_uri="magnet:?xt=urn:btih:fedcba9876543210fedcba9876543210fedcba98",
+        published_at=None,
+        author="OtherGroup",
+        category="动画",
+    )])
+    downloads = FakeDownloadService()
+    settings = SimpleNamespace(release_search=ReleaseSearchConfig())
+    service = ReleaseSearchService(provider, downloads, lambda: settings)
+
+    result = await service.search(episode_id)
+    with session_scope() as session:
+        candidate = session.scalar(
+            select(ReleaseCandidate).where(ReleaseCandidate.search_id == result["id"])
+        )
+        assert candidate is not None
+        candidate.decision = "MANUAL_REVIEW"
+    debugged = service.debug_auto_select(result["id"])
+
+    assert len(debugged["candidates"]) == 1
+    assert all(candidate["debug_selected_at"] is None for candidate in debugged["candidates"])
+    assert downloads.created == []
     _reset()
 
 
@@ -176,4 +227,187 @@ async def test_search_reuses_prequel_offset_for_continuous_episode_number(tmp_pa
     assert candidate["parsed"]["part"] is None
     assert "按前作累计集数换算匹配" in candidate["match_reasons"]
     assert "季度匹配" in candidate["match_reasons"]
+    _reset()
+
+
+def _raw(source_id: str, title: str, hash_digit: str) -> RawRelease:
+    return RawRelease(
+        source_id=source_id,
+        title=title,
+        description="",
+        release_url=f"https://example.test/{source_id}",
+        magnet_uri="magnet:?xt=urn:btih:" + hash_digit * 40,
+        published_at=None,
+        author=source_id,
+        category="动画",
+    )
+
+
+@pytest.mark.anyio
+async def test_auto_selection_prefers_ani_before_fansub_delay(tmp_path: Path, monkeypatch) -> None:
+    episode_id = _prepare(tmp_path, monkeypatch)
+    provider = FakeProvider([
+        _raw("fansub", "[北宇治字幕组] 测试动画 - 06 [1080p][CHS&JPN]", "1"),
+        _raw("ani", "[ANi] 测试动画 - 06 [1080p][CHT]", "2"),
+    ])
+    service = ReleaseSearchService(
+        provider, FakeDownloadService(),
+        lambda: SimpleNamespace(release_search=ReleaseSearchConfig()),
+    )
+
+    result = await service.search(episode_id)
+    selected = service.auto_candidate(result["id"])
+
+    assert selected is not None
+    assert selected["parsed"]["release_group"] == "ANi"
+    _reset()
+
+
+@pytest.mark.anyio
+async def test_auto_selection_prefers_fansub_after_three_days_without_local_media(
+    tmp_path: Path, monkeypatch
+) -> None:
+    episode_id = _prepare(tmp_path, monkeypatch)
+    with session_scope() as session:
+        episode = session.get(Episode, episode_id)
+        assert episode is not None
+        episode.air_date = date.today() - timedelta(days=3)
+    provider = FakeProvider([
+        _raw("ani", "[ANi] 测试动画 - 06 [1080p][CHT]", "c"),
+        _raw("fansub", "[北宇治字幕组] 测试动画 - 06 [1080p][CHS]", "d"),
+    ])
+    service = ReleaseSearchService(
+        provider, FakeDownloadService(),
+        lambda: SimpleNamespace(release_search=ReleaseSearchConfig()),
+    )
+
+    result = await service.search(episode_id)
+    selected = service.auto_candidate(result["id"])
+
+    assert selected is not None
+    assert selected["parsed"]["release_group"] == "北宇治字幕组"
+    _reset()
+
+
+@pytest.mark.anyio
+async def test_auto_selection_locks_existing_subject_groups_and_ranks_them(
+    tmp_path: Path, monkeypatch
+) -> None:
+    episode_id = _prepare(tmp_path, monkeypatch)
+    with session_scope() as session:
+        episode = session.get(Episode, episode_id)
+        assert episode is not None
+        for index, group in enumerate(("LoliHouse", "北宇治字幕组"), start=1):
+            session.add(MediaFile(
+                path=str(tmp_path / f"existing-{index}.mkv"),
+                filename=f"[{group}] Test Anime - 0{index}.mkv",
+                file_size=1,
+                mtime_ns=1,
+                exists=True,
+                ignored=False,
+                subject_id=episode.subject_id,
+                parse_result=json.dumps({"release_group": group}, ensure_ascii=False),
+                last_scanned_at=datetime.now(UTC),
+            ))
+    provider = FakeProvider([
+        _raw("other", "[OtherGroup] 测试动画 - 06 [1080p][CHS&JPN]", "3"),
+        _raw("loli", "[LoliHouse] 测试动画 - 06 [1080p][CHS]", "4"),
+        _raw("kitauji", "[北宇治字幕组] 测试动画 - 06 [1080p][CHS&JPN]", "5"),
+    ])
+    service = ReleaseSearchService(
+        provider, FakeDownloadService(),
+        lambda: SimpleNamespace(release_search=ReleaseSearchConfig()),
+    )
+
+    result = await service.search(episode_id)
+    selected = service.auto_candidate(result["id"])
+
+    assert selected is not None
+    assert selected["parsed"]["release_group"] == "北宇治字幕组"
+    _reset()
+
+
+@pytest.mark.anyio
+async def test_debug_selection_matches_english_and_chinese_group_aliases(
+    tmp_path: Path, monkeypatch
+) -> None:
+    episode_id = _prepare(tmp_path, monkeypatch)
+    with session_scope() as session:
+        episode = session.get(Episode, episode_id)
+        assert episode is not None
+        session.add(MediaFile(
+            path=str(tmp_path / "sakurato-existing.mkv"),
+            filename="[Sakurato] Test Anime - 05.mkv",
+            file_size=1,
+            mtime_ns=1,
+            exists=True,
+            ignored=False,
+            subject_id=episode.subject_id,
+            parse_result='{"release_group":"Sakurato"}',
+            last_scanned_at=datetime.now(UTC),
+        ))
+    provider = FakeProvider([
+        _raw("sakurato", "[桜都字幕组] 测试动画 - 06 [1080p][CHS]", "a"),
+        _raw("other", "[其他字幕组] 测试动画 - 06 [1080p][CHS&JPN]", "b"),
+    ])
+    service = ReleaseSearchService(
+        provider, FakeDownloadService(),
+        lambda: SimpleNamespace(release_search=ReleaseSearchConfig()),
+    )
+
+    result = await service.search(episode_id)
+    debugged = service.debug_auto_select(result["id"])
+    marked = [item for item in debugged["candidates"] if item["debug_selected_at"]]
+
+    assert len(marked) == 1
+    assert marked[0]["parsed"]["release_group"] == "桜都字幕组"
+    _reset()
+
+
+@pytest.mark.anyio
+async def test_three_day_old_ani_media_selects_preferred_replacement(
+    tmp_path: Path, monkeypatch
+) -> None:
+    episode_id = _prepare(tmp_path, monkeypatch)
+    with session_scope() as session:
+        episode = session.get(Episode, episode_id)
+        assert episode is not None
+        episode.air_date = date.today() - timedelta(days=3)
+        media = MediaFile(
+            path=str(tmp_path / "ani.mkv"),
+            filename="[ANi] Test Anime - 06.mkv",
+            file_size=1,
+            mtime_ns=1,
+            exists=True,
+            ignored=False,
+            subject_id=episode.subject_id,
+            parse_result='{"release_group":"ANi"}',
+            last_scanned_at=datetime.now(UTC),
+        )
+        session.add(media)
+        session.flush()
+        session.add(EpisodeFile(
+            episode_id=episode.id,
+            media_file_id=media.id,
+            mapping_source="DOWNLOAD_JOB",
+            confidence=1,
+            is_primary=True,
+        ))
+        media_id = media.id
+    downloads = FakeDownloadService()
+    provider = FakeProvider([
+        _raw("ani", "[ANi] 测试动画 - 06 [1080p][CHT]", "6"),
+        _raw("fansub", "[字幕组] 测试动画 - 06 [1080p][CHS]", "7"),
+    ])
+    service = ReleaseSearchService(
+        provider, downloads,
+        lambda: SimpleNamespace(release_search=ReleaseSearchConfig()),
+    )
+
+    result = await service.search(episode_id)
+    selected = service.auto_candidate(result["id"])
+    assert selected is not None
+    assert selected["parsed"]["release_group"] == "字幕组"
+    await service.download_candidate(selected["id"], automatic=True)
+    assert downloads.created[0][2] == [media_id]
     _reset()

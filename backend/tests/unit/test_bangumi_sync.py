@@ -7,7 +7,7 @@ from pathlib import Path
 from sqlalchemy import func, select
 
 from backend.app.config import BangumiConfig, get_settings
-from backend.app.database.models import Episode, MediaFile, Subject, SubjectRelation
+from backend.app.database.models import Episode, MediaFile, PlaybackState, Subject, SubjectRelation
 from backend.app.database.session import create_schema, get_engine
 from backend.app.modules.bangumi.schemas import (
     BangumiCollection,
@@ -23,6 +23,7 @@ class FakeBangumiClient:
     def __init__(self) -> None:
         self.collections = [BangumiCollection(10, "DOING"), BangumiCollection(20, "WISH")]
         self.fail_subject_ids: set[int] = set()
+        self.calls: list[tuple[str, int]] = []
 
     async def __aenter__(self):
         return self
@@ -34,6 +35,7 @@ class FakeBangumiClient:
         return self.collections
 
     async def get_subject(self, subject_id: int):
+        self.calls.append(("subject", subject_id))
         if subject_id in self.fail_subject_ids:
             raise BangumiTemporaryError("temporary")
         return BangumiSubject(
@@ -50,15 +52,20 @@ class FakeBangumiClient:
         )
 
     async def get_episodes(self, subject_id: int):
+        self.calls.append(("episodes", subject_id))
+        if subject_id in self.fail_subject_ids:
+            raise BangumiTemporaryError("temporary")
         return [
             BangumiEpisode(subject_id * 10, "MAIN", 1, "1", "episode", "第一集", date(2024, 1, 2)),
             BangumiEpisode(subject_id * 10 + 1, "OP", 0, "OP", "opening", "", None),
         ]
 
     async def get_subject_relations(self, subject_id: int):
+        self.calls.append(("relations", subject_id))
         return [BangumiRelation(20 if subject_id == 10 else 10, "SEQUEL")]
 
     async def get_episode_collection(self, subject_id: int):
+        self.calls.append(("episode_status", subject_id))
         return {subject_id * 10: "WATCHED"}
 
 
@@ -86,12 +93,137 @@ def test_sync_is_idempotent_and_preserves_local_watched(tmp_path: Path, monkeypa
         assert session.scalar(select(func.count()).select_from(SubjectRelation)) == 2
         episode = session.scalar(select(Episode).where(Episode.bangumi_episode_id == 100))
         assert episode is not None
+        state = session.scalar(select(PlaybackState).where(PlaybackState.episode_id == episode.id))
+        assert episode.watched is True
+        assert state is not None and state.watched is True and state.watched_source == "BANGUMI"
         episode.watched = True
 
     asyncio.run(service.sync_now())
     with session_scope() as session:
         episode = session.scalar(select(Episode).where(Episode.bangumi_episode_id == 100))
         assert episode is not None and episode.watched is True
+
+
+def test_quick_sync_only_refreshes_doing_and_full_sync_skips_stable_history(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("AUTOANIME_DATABASE__URL", f"sqlite:///{tmp_path / 'quick.db'}")
+    get_settings.cache_clear()
+    get_engine.cache_clear()
+    create_schema()
+    fake_client = FakeBangumiClient()
+    service = BangumiSyncService(
+        BangumiConfig(username="user", access_token="token", sync_concurrency=3),
+        client_factory=lambda _: fake_client,
+    )
+
+    quick = asyncio.run(service.sync_now(mode="QUICK"))
+    quick_status = service.get_status(quick.task_id)
+
+    assert quick.status == "SUCCESS"
+    assert quick_status["mode"] == "QUICK"
+    assert quick_status["processed_count"] == 1
+    assert quick_status["request_count"] == 4
+    assert {subject_id for _, subject_id in fake_client.calls} == {10}
+
+    fake_client.calls.clear()
+    full = asyncio.run(service.sync_now(mode="FULL"))
+    full_status = service.get_status(full.task_id)
+    assert full_status["mode"] == "FULL"
+    assert full_status["processed_count"] == 2
+    assert full_status["skipped_count"] == 0
+    assert {subject_id for _, subject_id in fake_client.calls} == {10, 20}
+
+    fake_client.calls.clear()
+    cached = asyncio.run(service.sync_now(mode="FULL"))
+    cached_status = service.get_status(cached.task_id)
+    assert cached_status["skipped_count"] == 1
+    assert cached_status["request_count"] == 2
+    assert fake_client.calls == [("episodes", 10), ("episode_status", 10)]
+
+
+def test_sync_enforces_global_request_concurrency(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("AUTOANIME_DATABASE__URL", f"sqlite:///{tmp_path / 'concurrency.db'}")
+    get_settings.cache_clear()
+    get_engine.cache_clear()
+    create_schema()
+
+    class ConcurrentClient(FakeBangumiClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.collections = [BangumiCollection(value, "DOING") for value in range(1, 5)]
+            self.active = 0
+            self.max_active = 0
+
+        async def _measure(self, result):
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+            await asyncio.sleep(0.01)
+            self.active -= 1
+            return result
+
+        async def get_subject(self, subject_id: int):
+            return await self._measure(await super().get_subject(subject_id))
+
+        async def get_episodes(self, subject_id: int):
+            return await self._measure(await super().get_episodes(subject_id))
+
+        async def get_subject_relations(self, subject_id: int):
+            return await self._measure(await super().get_subject_relations(subject_id))
+
+        async def get_episode_collection(self, subject_id: int):
+            return await self._measure(await super().get_episode_collection(subject_id))
+
+    client = ConcurrentClient()
+    service = BangumiSyncService(
+        BangumiConfig(username="user", access_token="token", sync_concurrency=3),
+        client_factory=lambda _: client,
+    )
+
+    result = asyncio.run(service.sync_now(mode="QUICK"))
+
+    assert result.status == "SUCCESS"
+    assert client.max_active == 3
+
+
+def test_sync_reconciles_remote_unwatch_without_overriding_manual_state(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AUTOANIME_DATABASE__URL", f"sqlite:///{tmp_path / 'sync.db'}")
+    get_settings.cache_clear()
+    get_engine.cache_clear()
+    create_schema()
+
+    fake_client = FakeBangumiClient()
+    service = BangumiSyncService(
+        BangumiConfig(username="user", access_token="token"),
+        client_factory=lambda _: fake_client,
+    )
+    asyncio.run(service.sync_now())
+
+    async def no_remote_watched(subject_id: int) -> dict[int, str]:
+        return {}
+
+    fake_client.get_episode_collection = no_remote_watched
+    asyncio.run(service.sync_now())
+    from backend.app.database.session import session_scope
+
+    with session_scope() as session:
+        episode = session.scalar(select(Episode).where(Episode.bangumi_episode_id == 100))
+        assert episode is not None and episode.watched is False
+        state = session.scalar(select(PlaybackState).where(PlaybackState.episode_id == episode.id))
+        assert state is not None and state.watched is False and state.watched_source == "BANGUMI"
+        episode.watched = True
+        state.watched = True
+        state.watched_source = "MANUAL"
+
+    asyncio.run(service.sync_now())
+    with session_scope() as session:
+        episode = session.scalar(select(Episode).where(Episode.bangumi_episode_id == 100))
+        state = session.scalar(select(PlaybackState).where(PlaybackState.episode_id == episode.id))
+        assert episode.watched is True
+        assert state is not None and state.watched is True and state.watched_source == "MANUAL"
 
 
 def test_sync_reconciles_removed_collections_without_deleting_metadata(

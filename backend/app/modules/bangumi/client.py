@@ -228,3 +228,46 @@ class BangumiClient:
                 raise BangumiError(f"Bangumi 观看状态回写失败（HTTP {response.status_code}）", status_code=response.status_code)
             return
         raise BangumiTemporaryError("Bangumi 观看状态回写失败")
+
+    async def set_subject_collection(self, subject_id: int, collection_type: str) -> None:
+        type_value = {
+            "WISH": 1,
+            "COLLECTED": 2,
+            "DOING": 3,
+            "ON_HOLD": 4,
+            "DROPPED": 5,
+        }.get(collection_type.upper())
+        if type_value is None:
+            raise ValueError(f"未知 Bangumi 收藏状态：{collection_type}")
+        client = self._client
+        if client is None:
+            client = httpx.AsyncClient(base_url=self.settings.base_url, timeout=self.settings.timeout)
+            self._client = client
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = await client.post(
+                    self._path(f"/users/-/collections/{subject_id}"),
+                    json={"type": type_value},
+                    headers={**self._headers(), "Content-Type": "application/json"},
+                )
+            except (httpx.TimeoutException, httpx.RequestError) as exc:
+                if attempt < self.max_retries:
+                    await asyncio.sleep(self.retry_delay * (attempt + 1))
+                    continue
+                raise BangumiTemporaryError("Bangumi 收藏状态回写失败") from exc
+            if response.status_code in (401, 403):
+                raise BangumiAuthError("Bangumi Token 无效或无权回写", status_code=response.status_code)
+            if response.status_code == 429 or response.status_code >= 500:
+                if attempt < self.max_retries:
+                    await asyncio.sleep(self.retry_delay * (attempt + 1))
+                    continue
+                raise BangumiTemporaryError(
+                    "Bangumi 收藏状态回写暂时不可用", status_code=response.status_code
+                )
+            if response.status_code >= 400:
+                raise BangumiError(
+                    f"Bangumi 收藏状态回写失败（HTTP {response.status_code}）",
+                    status_code=response.status_code,
+                )
+            return
+        raise BangumiTemporaryError("Bangumi 收藏状态回写失败")

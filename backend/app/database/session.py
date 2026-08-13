@@ -7,7 +7,7 @@ from typing import Iterator
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine, create_engine, event, text
 from sqlalchemy.pool import NullPool
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -18,12 +18,24 @@ from backend.app.database.base import Base
 @lru_cache
 def get_engine() -> Engine:
     settings = get_settings()
-    return create_engine(
+    engine = create_engine(
         settings.database.url,
-        connect_args={"check_same_thread": False},
+        connect_args={"check_same_thread": False, "timeout": 30},
         # 下载导入在线程池运行；SQLite 连接不跨线程复用可避免阻塞并简化恢复。
         poolclass=NullPool,
     )
+
+    @event.listens_for(engine, "connect")
+    def configure_sqlite(dbapi_connection, _connection_record) -> None:
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA busy_timeout=30000")
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+        finally:
+            cursor.close()
+
+    return engine
 
 
 def get_session_factory() -> sessionmaker[Session]:

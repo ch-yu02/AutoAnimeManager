@@ -44,6 +44,14 @@ async def get_release_search(search_id: str, request: Request) -> dict[str, obje
         raise HTTPException(404, detail={"code": "release_search_not_found", "message": str(exc)}) from exc
 
 
+@router.post("/search/{search_id}/debug-auto-select")
+async def debug_auto_select(search_id: str, request: Request) -> dict[str, object]:
+    try:
+        return _service(request).debug_auto_select(search_id)
+    except ReleaseSearchNotFound as exc:
+        raise HTTPException(404, detail={"code": "release_search_not_found", "message": str(exc)}) from exc
+
+
 @router.post("/candidates/{candidate_id}/download", status_code=status.HTTP_202_ACCEPTED)
 async def download_release_candidate(candidate_id: str, request: Request) -> dict[str, object]:
     try:

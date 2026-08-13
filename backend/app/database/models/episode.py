@@ -26,6 +26,7 @@ class Episode(Base):
     ignored: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     local_status: Mapped[str] = mapped_column(String(30), nullable=False, default="MISSING", index=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    successfully_imported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False

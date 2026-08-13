@@ -20,8 +20,11 @@ async def start_sync(request: Request) -> dict[str, object]:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"code": "not_configured", "message": "请先配置 bangumi.username 和 bangumi.access_token"},
         )
-    result = await _service(request).start()
-    return {"task_id": result.task_id, "status": result.status, "reused": result.reused}
+    result = await _service(request).start(mode="FULL")
+    return {
+        "task_id": result.task_id, "mode": "FULL",
+        "status": result.status, "reused": result.reused,
+    }
 
 
 @router.get("/sync/status")

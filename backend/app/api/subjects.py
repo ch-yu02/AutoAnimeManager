@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime
+from difflib import SequenceMatcher
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 
 from backend.app.database.models.episode import Episode
 from backend.app.database.models.media import EpisodeFile, MediaFile
@@ -12,6 +14,9 @@ from backend.app.database.models.playback import PlaybackState
 from backend.app.database.models.subject import Subject, SubjectRelation
 from backend.app.database.models.sync import SyncRun
 from backend.app.database.session import session_scope
+from backend.app.modules.bangumi.errors import BangumiError
+from backend.app.modules.playback.writeback import writeback_subject_collection
+from backend.app.modules.library.parser import normalize_title
 
 router = APIRouter(prefix="/subjects", tags=["subjects"])
 
@@ -32,6 +37,7 @@ class SubjectListItem(BaseModel):
     collection_type: str | None
     collection_updated_at: datetime | None
     total_main_episodes: int | None
+    keep_forever: bool
     episode_count: int
     main_episode_count: int
     last_synced_at: datetime | None
@@ -73,6 +79,20 @@ class EpisodeView(BaseModel):
     last_synced_at: datetime | None
 
 
+class CollectionUpdate(BaseModel):
+    collection_type: str
+
+
+class SubjectSearchResult(BaseModel):
+    id: int
+    bangumi_subject_id: int
+    display_name: str
+    matched_title: str
+    display_label: str
+    collection_type: str | None
+    air_date: date | None
+
+
 def _display_name(subject: Subject) -> str:
     return subject.name_cn or subject.name or f"Bangumi #{subject.bangumi_subject_id}"
 
@@ -104,6 +124,7 @@ def _list_item(
         collection_type=subject.collection_type,
         collection_updated_at=subject.collection_updated_at,
         total_main_episodes=subject.total_main_episodes,
+        keep_forever=subject.keep_forever,
         episode_count=episode_count,
         main_episode_count=main_episode_count,
         last_synced_at=subject.last_synced_at,
@@ -159,6 +180,71 @@ async def list_subjects(
         ]
 
 
+@router.get("/search", response_model=list[SubjectSearchResult])
+async def search_subjects(
+    query: str = Query(min_length=1, max_length=200),
+    limit: int = Query(default=20, ge=1, le=50),
+) -> list[SubjectSearchResult]:
+    needle = normalize_title(query)
+    if not needle:
+        return []
+    needle_tokens = needle.split()
+    matches: list[tuple[float, bool, Subject, str]] = []
+    with session_scope() as session:
+        useful_subjects = select(Subject).where(or_(
+            Subject.subject_type == 2,
+            Subject.collection_type.is_not(None),
+        ))
+        for subject in session.scalars(useful_subjects):
+            try:
+                aliases = json.loads(subject.aliases)
+            except (json.JSONDecodeError, TypeError):
+                aliases = []
+            titles = [subject.name_cn, subject.name]
+            if isinstance(aliases, list):
+                titles.extend(value for value in aliases if isinstance(value, str))
+            best_score = 0.0
+            best_title = ""
+            for title in titles:
+                normalized = normalize_title(title)
+                if not normalized:
+                    continue
+                if normalized == needle:
+                    score = 1.0
+                elif normalized.startswith(needle):
+                    score = 0.95
+                elif needle in normalized:
+                    score = 0.90
+                elif all(token in normalized for token in needle_tokens):
+                    score = 0.82
+                else:
+                    ratio = SequenceMatcher(None, needle, normalized).ratio()
+                    score = ratio if ratio >= 0.72 else 0.0
+                if score > best_score:
+                    best_score = score
+                    best_title = title
+            if best_score:
+                matches.append((best_score, subject.collection_type is not None, subject, best_title))
+        matches.sort(key=lambda item: (-item[0], -int(item[1]), _display_name(item[2])))
+        results = []
+        for _, _, subject, matched_title in matches[:limit]:
+            display_name = _display_name(subject)
+            matched_suffix = f" · 命中：{matched_title}" if matched_title != display_name else ""
+            date_suffix = f" · {subject.air_date.isoformat()}" if subject.air_date else ""
+            results.append(SubjectSearchResult(
+                id=subject.id,
+                bangumi_subject_id=subject.bangumi_subject_id,
+                display_name=display_name,
+                matched_title=matched_title,
+                display_label=(
+                    f"{display_name}{matched_suffix}{date_suffix} · BGM#{subject.bangumi_subject_id}"
+                ),
+                collection_type=subject.collection_type,
+                air_date=subject.air_date,
+            ))
+        return results
+
+
 @router.get("/{subject_id}", response_model=SubjectDetail)
 async def get_subject(subject_id: int) -> SubjectDetail:
     with session_scope() as session:
@@ -172,6 +258,7 @@ async def get_subject(subject_id: int) -> SubjectDetail:
             .join(Subject, Subject.id == SubjectRelation.related_subject_id)
             .where(SubjectRelation.subject_id == subject.id)
         )
+
         for relation, related in rows:
             relations.append(
                 RelationView(
@@ -199,6 +286,34 @@ async def get_subject(subject_id: int) -> SubjectDetail:
                 else None
             ),
         )
+
+
+@router.patch("/{subject_id}/collection")
+async def update_subject_collection(
+    subject_id: int, payload: CollectionUpdate
+) -> dict[str, object]:
+    try:
+        return await writeback_subject_collection(subject_id, payload.collection_type)
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "subject_not_found", "message": "条目不存在"},
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_collection_type", "message": "收藏状态无效"},
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "bangumi_not_configured", "message": "请先配置 Bangumi Token"},
+        ) from exc
+    except BangumiError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
 
 
 @router.get("/{subject_id}/episodes", response_model=list[EpisodeView])

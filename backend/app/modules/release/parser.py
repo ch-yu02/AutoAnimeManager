@@ -8,6 +8,7 @@ from backend.app.modules.release.schemas import ParsedRelease, RawRelease
 
 
 LANGUAGE_PATTERNS = (
+    (re.compile(r"简日(?:双语)?|简中日双语|(?:CHS|SC)\s*(?:&|\+|/|AND)\s*(?:JPN?|JA)", re.I), "CHS+JPN"),
     (re.compile(r"简繁|繁简|简体繁体|双语|(?:CHS|SC)\s*(?:&|\+|/|AND)\s*(?:CHT|TC)", re.I), "CHS+CHT"),
     (re.compile(r"简体|简中|(?<![A-Z])(?:CHS|SC)(?![A-Z])", re.I), "CHS"),
     (re.compile(r"繁体|繁中|(?<![A-Z])(?:CHT|TC)(?![A-Z])", re.I), "CHT"),
@@ -42,7 +43,7 @@ def parse_release(raw: RawRelease) -> ParsedRelease:
         raw=raw,
         normalized_title=parsed.normalized_title,
         release_group=parsed.release_group,
-        season=parsed.season,
+        season=parsed.season or scope_number(raw.title, "season"),
         part=scope_number(raw.title, "part"),
         episode_start=parsed.episode_start,
         episode_end=parsed.episode_end,

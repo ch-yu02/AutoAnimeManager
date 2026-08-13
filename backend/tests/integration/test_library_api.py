@@ -146,3 +146,48 @@ async def test_rematch_review_queue_api(tmp_path: Path, monkeypatch) -> None:
         assert media is not None and media.review_reason is None
         assert mapping is not None
     _reset_caches()
+
+
+@pytest.mark.anyio
+async def test_manual_match_subject_search_uses_names_and_aliases(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AUTOANIME_DATABASE__URL", f"sqlite:///{tmp_path / 'search.db'}")
+    _reset_caches()
+    _migrate()
+    with session_scope() as session:
+        session.add_all([
+            Subject(
+                bangumi_subject_id=101,
+                name="Uma Musume: Pretty Derby - Road to the Top",
+                name_cn="赛马娘 Pretty Derby 巅峰之路",
+                aliases=json.dumps(["Uma Musume Road to the Top"], ensure_ascii=False),
+                collection_type="COLLECTED",
+            ),
+            Subject(
+                bangumi_subject_id=102,
+                name="Uma Musume: Pretty Derby Season 3",
+                name_cn="赛马娘 Pretty Derby 第三季",
+                collection_type="COLLECTED",
+            ),
+        ])
+
+    app = create_app()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        alias = await client.get(
+            "/api/subjects/search", params={"query": "Uma Musume Road to the Top"}
+        )
+        chinese = await client.get(
+            "/api/subjects/search", params={"query": "巅峰之路"}
+        )
+
+    assert alias.status_code == 200
+    assert alias.json()[0]["bangumi_subject_id"] == 101
+    assert alias.json()[0]["matched_title"] == "Uma Musume Road to the Top"
+    assert chinese.status_code == 200
+    assert chinese.json()[0]["bangumi_subject_id"] == 101
+    assert "BGM#101" in chinese.json()[0]["display_label"]
+    _reset_caches()

@@ -9,6 +9,7 @@ from backend.app.modules.download.magnet import InvalidMagnet, magnet_info_hash
 from backend.app.modules.library.matcher import base_title
 from backend.app.modules.library.parser import normalize_title
 from backend.app.modules.release.parser import parse_release
+from backend.app.modules.release_preferences import has_han_group, preferred_subtitle
 from backend.app.modules.release.schemas import ParsedRelease, RawRelease, ScoredRelease
 
 
@@ -63,7 +64,16 @@ def score_release(
         expected = "/".join(f"{number:g}" for number in number_candidates)
         rejects.append(f"Episode 不匹配（资源为 {parsed.episode_start:g}，目标候选为 {expected}）")
 
-    score += _scope_score("季度", parsed.season, subject_seasons or set(), reasons, rejects)
+    continuous_numbering = bool(
+        matched_number is not None
+        and len(number_candidates) > 1
+        and matched_number[0] == max(number_candidates)
+        and max(number_candidates) > min(number_candidates)
+    )
+    if parsed.season is None and continuous_numbering:
+        reasons.append("连续集数已定位到当前季度")
+    else:
+        score += _scope_score("季度", parsed.season, subject_seasons or set(), reasons, rejects)
     score += _scope_score("Part", parsed.part, subject_parts or set(), reasons, rejects)
 
     score += _preference_score(parsed, config, reasons)
@@ -144,6 +154,16 @@ def _scope_score(
 
 def _preference_score(parsed: ParsedRelease, config: ReleaseSearchConfig, reasons: list[str]) -> float:
     score = 0.0
+    normalized_language = (parsed.subtitle_language or "").upper()
+    if normalized_language == "CHS+JPN":
+        score += 12
+        reasons.append("简日双语字幕偏好")
+    elif preferred_subtitle(normalized_language):
+        score += 10
+        reasons.append("简体字幕偏好")
+    if has_han_group(parsed.release_group):
+        score += 6
+        reasons.append("字幕组名称含汉字")
     if config.preferred_groups:
         group = normalize_title(parsed.release_group or "")
         if any(normalize_title(item) in group or group in normalize_title(item) for item in config.preferred_groups):

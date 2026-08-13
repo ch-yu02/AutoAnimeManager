@@ -60,6 +60,22 @@ def test_release_parser_reads_part_and_combined_chinese_subtitles() -> None:
     assert release.subtitle_language == "CHS+CHT"
 
 
+def test_release_parser_reads_simplified_japanese_bilingual_subtitles() -> None:
+    release = parse_release(RawRelease(
+        source_id="chs-jpn",
+        title="[北宇治字幕组] Test Anime - 06 [1080p][CHS&JPN]",
+        description="简日双语字幕",
+        release_url="https://example.test/chs-jpn",
+        magnet_uri=None,
+        published_at=None,
+        author=None,
+        category=None,
+    ))
+
+    assert release.release_group == "北宇治字幕组"
+    assert release.subtitle_language == "CHS+JPN"
+
+
 @pytest.mark.anyio
 async def test_kisssub_provider_builds_subject_specific_rss_url() -> None:
     requested_urls: list[str] = []
@@ -98,3 +114,28 @@ async def test_kisssub_provider_falls_back_to_aliases_and_deduplicates() -> None
 
     assert len(requested_paths) == 3
     assert len(releases) == 1
+
+
+@pytest.mark.anyio
+async def test_kisssub_provider_keeps_seasonless_primary_title_within_query_limit() -> None:
+    requested_paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested_paths.append(request.url.path)
+        return httpx.Response(200, content=RSS)
+
+    provider = KissSubRSSProvider(
+        lambda: ReleaseSearchConfig(
+            rss_url_template="https://rss.test/rss-{query}.xml",
+            max_query_terms=3,
+        ),
+        transport=httpx.MockTransport(handler),
+    )
+    await provider.search([
+        "超超超超超喜欢你的100个女朋友 第三季",
+        "君のことが大大大大大好きな100人の彼女 第3期",
+        "Kimi no Koto ga Dai Dai Dai Dai Daisuki na 100-nin no Kanojo 3",
+    ], 25)
+
+    assert requested_paths[0] == "/rss-超超超超超喜欢你的100个女朋友 第三季.xml"
+    assert requested_paths[1] == "/rss-超超超超超喜欢你的100个女朋友.xml"

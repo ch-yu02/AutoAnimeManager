@@ -15,7 +15,7 @@ from backend.app.modules.library.manifest import write_manifest
 from backend.app.modules.library.matcher import refresh_episode_statuses
 from backend.app.modules.library.parser import parse_filename
 from backend.app.modules.library.probe import probe_media
-from backend.app.modules.library.scanner import partial_hash, refresh_primary_conflicts
+from backend.app.modules.library.scanner import delete_media_record, partial_hash, refresh_primary_conflicts
 
 
 class ImportFailure(RuntimeError):
@@ -26,6 +26,7 @@ class ImportFailure(RuntimeError):
 class ImportResult:
     imported_files: int
     review_files: int = 0
+    replaced_torrent_hashes: tuple[str, ...] = ()
 
 
 def _safe_name(value: str) -> str:
@@ -159,6 +160,30 @@ class FileImporter:
                     manually_locked=True,
                 ))
                 write_manifest(Path(media.path), subject.bangumi_subject_id, [episode.bangumi_episode_id], True)
+                episode.successfully_imported_at = datetime.now(UTC)
+            imported_ids = {media.id for media in imported}
+            try:
+                replacement_ids = [int(value) for value in json.loads(job.replacement_media_ids_json)]
+                replaced_job_ids = [str(value) for value in json.loads(job.replaces_job_ids_json)]
+            except (json.JSONDecodeError, TypeError, ValueError):
+                replacement_ids = []
+                replaced_job_ids = []
+            for media_id in replacement_ids:
+                if media_id in imported_ids:
+                    continue
+                previous = session.get(MediaFile, media_id)
+                if previous is None:
+                    continue
+                Path(previous.path).unlink(missing_ok=True)
+                delete_media_record(session, previous)
+            replaced_hashes = tuple(
+                torrent_hash
+                for replaced_job_id in replaced_job_ids
+                if (replaced_job := session.get(DownloadJob, replaced_job_id)) is not None
+                if (torrent_hash := replaced_job.torrent_hash or replaced_job.magnet_hash)
+            )
             refresh_primary_conflicts(session)
             refresh_episode_statuses(session)
-            return ImportResult(imported_files=len(imported))
+            return ImportResult(
+                imported_files=len(imported), replaced_torrent_hashes=replaced_hashes
+            )

@@ -2,16 +2,31 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import select
 
 from backend.app.config import ReleaseSearchConfig, get_settings
-from backend.app.database.models import DownloadJob, Episode, ReleaseCandidate, ReleaseSearch, Subject
+from backend.app.database.models import (
+    DownloadJob,
+    Episode,
+    EpisodeFile,
+    MediaFile,
+    ReleaseCandidate,
+    ReleaseSearch,
+    Subject,
+)
 from backend.app.database.session import session_scope
 from backend.app.modules.download.service import DownloadService
 from backend.app.modules.library.matcher import episode_number_candidates, subject_scope_numbers
 from backend.app.modules.release.provider import ReleaseProvider, ReleaseProviderError
+from backend.app.modules.release_preferences import (
+    automatic_preference_rank,
+    group_keys,
+    is_ani_group,
+    is_preferred_fansub,
+    media_release_group,
+)
 from backend.app.modules.release.scorer import aliases_from_json, score_release
 
 
@@ -118,7 +133,12 @@ class ReleaseSearchService:
             candidates = list(session.scalars(
                 select(ReleaseCandidate)
                 .where(ReleaseCandidate.search_id == search.id)
-                .order_by(ReleaseCandidate.score.desc(), ReleaseCandidate.created_at, ReleaseCandidate.id)
+                .order_by(
+                    ReleaseCandidate.score.desc(),
+                    ReleaseCandidate.published_at.desc(),
+                    ReleaseCandidate.created_at,
+                    ReleaseCandidate.id,
+                )
             ))
             visible_candidates = [candidate for candidate in candidates if candidate.decision != "REJECT"]
             return {
@@ -136,7 +156,67 @@ class ReleaseSearchService:
                 "rejected_count": len(candidates) - len(visible_candidates),
             }
 
-    async def download_candidate(self, candidate_id: str) -> dict[str, object]:
+    def auto_candidate(self, search_id: str) -> dict[str, object] | None:
+        with session_scope() as session:
+            search = session.get(ReleaseSearch, search_id)
+            if search is None:
+                raise ReleaseSearchNotFound("资源搜索记录不存在")
+            episode = session.get(Episode, search.episode_id)
+            if episode is None:
+                return None
+            candidates = list(session.scalars(
+                select(ReleaseCandidate)
+                .where(
+                    ReleaseCandidate.search_id == search_id,
+                    ReleaseCandidate.decision == "AUTO_ACCEPT",
+                    ReleaseCandidate.duplicate.is_(False),
+                    ReleaseCandidate.magnet_uri.is_not(None),
+                    ReleaseCandidate.magnet_uri != "",
+                )
+            ))
+            locked_groups = self._subject_release_groups(session, episode.subject_id)
+            replacement_ids = self._ani_replacement_media_ids(session, episode)
+            if locked_groups:
+                candidates = [
+                    candidate for candidate in candidates
+                    if group_keys(candidate.release_group) & locked_groups
+                ]
+            elif replacement_ids:
+                candidates = [
+                    candidate for candidate in candidates
+                    if is_preferred_fansub(candidate.release_group, candidate.subtitle_language)
+                ]
+            candidates.sort(
+                key=lambda candidate: self._automatic_sort_key(
+                    candidate,
+                    prefer_ani=(
+                        not locked_groups
+                        and not replacement_ids
+                        and not self._fansub_wait_elapsed(episode)
+                    ),
+                ),
+                reverse=True,
+            )
+            candidate = candidates[0] if candidates else None
+            return self._candidate_view(candidate) if candidate is not None else None
+
+    def debug_auto_select(self, search_id: str) -> dict[str, object]:
+        selected = self.auto_candidate(search_id)
+        with session_scope() as session:
+            candidates = list(session.scalars(
+                select(ReleaseCandidate).where(ReleaseCandidate.search_id == search_id)
+            ))
+            for candidate in candidates:
+                candidate.debug_selected_at = None
+            if selected is not None:
+                candidate = session.get(ReleaseCandidate, str(selected["id"]))
+                if candidate is not None:
+                    candidate.debug_selected_at = datetime.now(UTC)
+        return self.get_search(search_id)
+
+    async def download_candidate(
+        self, candidate_id: str, *, automatic: bool = False
+    ) -> dict[str, object]:
         with session_scope() as session:
             candidate = session.get(ReleaseCandidate, candidate_id)
             if candidate is None:
@@ -149,7 +229,20 @@ class ReleaseSearchService:
                 raise ReleaseNotDownloadable("该候选没有可用 magnet")
             episode_id = candidate.episode_id
             magnet_uri = candidate.magnet_uri
-        download = await self.download_service.create(episode_id, magnet_uri)
+            episode = session.get(Episode, episode_id)
+            replacement_ids = (
+                self._ani_replacement_media_ids(session, episode)
+                if automatic and episode is not None
+                else []
+            )
+        if replacement_ids:
+            download = await self.download_service.create(
+                episode_id,
+                magnet_uri,
+                replacement_media_ids=replacement_ids,
+            )
+        else:
+            download = await self.download_service.create(episode_id, magnet_uri)
         with session_scope() as session:
             candidate = session.get(ReleaseCandidate, candidate_id)
             if candidate is not None:
@@ -172,7 +265,7 @@ class ReleaseSearchService:
                     episode_number = float(episode.display_number)
                 except ValueError:
                     episode_number = None
-            names = [subject.name, subject.name_cn, *aliases_from_json(subject.aliases)]
+            names = [subject.name_cn, subject.name, *aliases_from_json(subject.aliases)]
             return {
                 "query": subject.name_cn or subject.name,
                 "episode_number": episode_number,
@@ -187,6 +280,61 @@ class ReleaseSearchService:
         with session_scope() as session:
             rows = session.execute(select(DownloadJob.magnet_hash, DownloadJob.torrent_hash))
             return {value for row in rows for value in row if value}
+
+    @staticmethod
+    def _subject_release_groups(session, subject_id: int) -> set[str]:
+        groups: set[str] = set()
+        for media in session.scalars(select(MediaFile).where(
+                MediaFile.subject_id == subject_id,
+                MediaFile.exists.is_(True),
+                MediaFile.ignored.is_(False),
+            )):
+            raw_group = media_release_group(media.parse_result, media.filename)
+            if not is_ani_group(raw_group):
+                groups.update(group_keys(raw_group))
+        return groups
+
+    @staticmethod
+    def _ani_replacement_media_ids(
+        session, episode: Episode, *, today: date | None = None
+    ) -> list[int]:
+        if episode.air_date is None or episode.air_date > (today or date.today()) - timedelta(days=3):
+            return []
+        media = list(session.scalars(
+            select(MediaFile)
+            .join(EpisodeFile, EpisodeFile.media_file_id == MediaFile.id)
+            .where(
+                EpisodeFile.episode_id == episode.id,
+                MediaFile.exists.is_(True),
+                MediaFile.ignored.is_(False),
+            )
+        ))
+        if not media or not all(
+            is_ani_group(media_release_group(item.parse_result, item.filename)) for item in media
+        ):
+            return []
+        return [item.id for item in media]
+
+    @staticmethod
+    def _fansub_wait_elapsed(episode: Episode, *, today: date | None = None) -> bool:
+        return bool(
+            episode.air_date is not None
+            and episode.air_date <= (today or date.today()) - timedelta(days=3)
+        )
+
+    @staticmethod
+    def _automatic_sort_key(
+        candidate: ReleaseCandidate, *, prefer_ani: bool
+    ) -> tuple[int, int, float, datetime]:
+        published = candidate.published_at or datetime.min.replace(tzinfo=UTC)
+        if published.tzinfo is None:
+            published = published.replace(tzinfo=UTC)
+        return (
+            int(prefer_ani and is_ani_group(candidate.release_group)),
+            automatic_preference_rank(candidate.release_group, candidate.subtitle_language),
+            candidate.score,
+            published,
+        )
 
     @staticmethod
     def _candidate_view(candidate: ReleaseCandidate) -> dict[str, object]:
@@ -220,6 +368,7 @@ class ReleaseSearchService:
             "match_reasons": _json_list(candidate.match_reasons),
             "reject_reasons": _json_list(candidate.reject_reasons),
             "duplicate": candidate.duplicate,
+            "debug_selected_at": candidate.debug_selected_at,
             "selected_at": candidate.selected_at,
             "download_job_id": candidate.download_job_id,
             "downloadable": candidate.decision != "REJECT" and not candidate.duplicate and bool(candidate.magnet_uri),

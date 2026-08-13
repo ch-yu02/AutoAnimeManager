@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from backend.app.config import get_settings, public_settings
@@ -29,6 +29,10 @@ class SettingsPatch(BaseModel):
     library_roots: list[str] | None = None
     auto_play_next: bool | None = None
     bangumi_writeback_enabled: bool | None = None
+    auto_download_enabled: bool | None = None
+    cleanup_enabled: bool | None = None
+    cleanup_retention_days: int | None = Field(default=None, ge=0, le=3650)
+    cleanup_quarantine_days: int | None = Field(default=None, ge=1, le=365)
     qbittorrent_base_url: str | None = Field(default=None, min_length=1)
     qbittorrent_username: str | None = Field(default=None, min_length=1)
     qbittorrent_password: str | None = Field(default=None, min_length=1)
@@ -40,7 +44,7 @@ async def read_settings() -> dict[str, object]:
 
 
 @router.patch("")
-async def update_settings(payload: SettingsPatch) -> dict[str, object]:
+async def update_settings(payload: SettingsPatch, request: Request) -> dict[str, object]:
     """Persist the phase-1 editable Bangumi settings in the configured YAML file."""
     import yaml
 
@@ -103,6 +107,29 @@ async def update_settings(payload: SettingsPatch) -> dict[str, object]:
             qbittorrent["username"] = payload.qbittorrent_username.strip()
         if payload.qbittorrent_password is not None:
             qbittorrent["password"] = payload.qbittorrent_password
+    if payload.auto_download_enabled is not None:
+        scheduler = raw.setdefault("scheduler", {})
+        if not isinstance(scheduler, dict):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"code": "invalid_config", "message": "scheduler 配置必须是对象"},
+            )
+        scheduler["auto_download_enabled"] = payload.auto_download_enabled
+    if any(value is not None for value in (
+        payload.cleanup_enabled, payload.cleanup_retention_days, payload.cleanup_quarantine_days
+    )):
+        cleanup = raw.setdefault("cleanup", {})
+        if not isinstance(cleanup, dict):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"code": "invalid_config", "message": "cleanup 配置必须是对象"},
+            )
+        if payload.cleanup_enabled is not None:
+            cleanup["enabled"] = payload.cleanup_enabled
+        if payload.cleanup_retention_days is not None:
+            cleanup["retention_days"] = payload.cleanup_retention_days
+        if payload.cleanup_quarantine_days is not None:
+            cleanup["quarantine_days"] = payload.cleanup_quarantine_days
     config_path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path: Path | None = None
     try:

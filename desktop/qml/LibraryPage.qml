@@ -7,6 +7,7 @@ Page {
     property string category: "needs_review"
     property int selectedSubjectId: -1
     property int selectedEpisodeId: -1
+    property string selectedSubjectName: ""
     property var currentFiles: backend.review[category] || []
     background: Rectangle { color: "#0b1018" }
 
@@ -41,13 +42,41 @@ Page {
         RowLayout {
             visible: root.category === "needs_review"
             Label { text: "人工关联："; color: "#c8d0da" }
+            TextField {
+                id: subjectSearch
+                Layout.preferredWidth: 260
+                placeholderText: "输入 Subject 中文名、原名或别名"
+                onTextEdited: {
+                    root.selectedSubjectId = -1
+                    root.selectedSubjectName = ""
+                    root.selectedEpisodeId = -1
+                    subjectSearchTimer.restart()
+                }
+            }
+            Timer {
+                id: subjectSearchTimer
+                interval: 300
+                repeat: false
+                onTriggered: backend.searchLibrarySubjects(subjectSearch.text)
+            }
             ComboBox {
                 id: subjectPicker
-                Layout.preferredWidth: 280
-                model: backend.subjects
-                textRole: "display_name"
+                Layout.preferredWidth: 360
+                model: backend.librarySubjectMatches
+                textRole: "display_label"
+                enabled: backend.librarySubjectMatches.length > 0
+                displayText: root.selectedSubjectId > 0
+                    ? root.selectedSubjectName
+                    : (subjectSearch.text.trim().length === 0
+                        ? "先输入标题"
+                        : (backend.librarySubjectMatches.length > 0
+                            ? "选择匹配结果（" + backend.librarySubjectMatches.length + "）"
+                            : "没有匹配结果"))
                 onActivated: {
-                    root.selectedSubjectId = backend.subjects[currentIndex].id
+                    const selected = backend.librarySubjectMatches[currentIndex]
+                    root.selectedSubjectId = selected.id
+                    root.selectedSubjectName = selected.display_name
+                    subjectSearch.text = selected.display_name
                     backend.loadSubject(root.selectedSubjectId)
                     root.selectedEpisodeId = -1
                 }
@@ -57,7 +86,11 @@ Page {
                 Layout.preferredWidth: 260
                 model: backend.episodes
                 textRole: "display_number"
-                displayText: currentIndex >= 0 && backend.episodes[currentIndex] ? "第 " + backend.episodes[currentIndex].display_number + " 集 · " + (backend.episodes[currentIndex].name_cn || backend.episodes[currentIndex].name) : "选择章节"
+                enabled: root.selectedSubjectId > 0 && backend.episodes.length > 0
+                displayText: root.selectedEpisodeId > 0 && currentIndex >= 0 && backend.episodes[currentIndex]
+                    ? "第 " + backend.episodes[currentIndex].display_number + " 集 · "
+                        + (backend.episodes[currentIndex].name_cn || backend.episodes[currentIndex].name)
+                    : (root.selectedSubjectId > 0 ? "选择章节" : "先选择 Subject")
                 onActivated: root.selectedEpisodeId = backend.episodes[currentIndex].id
             }
         }

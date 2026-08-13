@@ -40,12 +40,18 @@ ApplicationWindow {
     property bool playerOpen: stack.currentItem && stack.currentItem.objectName === "playerPage"
 
     function leavePlayer() { if (playerOpen) player.stop() }
-    function openHome() { leavePlayer(); stack.replace(homeComponent) }
-    function openSubjects() { leavePlayer(); stack.replace(subjectsComponent) }
-    function openSubject(id) { leavePlayer(); stack.replace(detailComponent, { subjectId: id }) }
-    function openLibrary() { leavePlayer(); stack.replace(libraryComponent) }
-    function openDownloads() { leavePlayer(); stack.replace(downloadsComponent) }
-    function openSettings() { leavePlayer(); stack.replace(settingsComponent) }
+    function openRoot(component) {
+        leavePlayer()
+        stack.clear()
+        stack.push(component)
+    }
+    function openHome() { openRoot(homeComponent) }
+    function openSubjects() { openRoot(subjectsComponent) }
+    function openSubject(id) { leavePlayer(); stack.push(detailComponent, { subjectId: id }) }
+    function openLibrary() { openRoot(libraryComponent) }
+    function openDownloads() { openRoot(downloadsComponent) }
+    function openQuarantine() { openRoot(quarantineComponent) }
+    function openSettings() { openRoot(settingsComponent) }
     function openPlayer(episodeId, fromStart, episodes, title) {
         stack.push(playerComponent, {
             requestedEpisodeId: episodeId,
@@ -59,6 +65,7 @@ ApplicationWindow {
     Shortcut { sequence: "Ctrl+2"; onActivated: window.openSubjects() }
     Shortcut { sequence: "Ctrl+3"; onActivated: window.openLibrary() }
     Shortcut { sequence: "Ctrl+4"; onActivated: window.openDownloads() }
+    Shortcut { sequence: "Ctrl+5"; onActivated: window.openQuarantine() }
     Shortcut { sequence: "Ctrl+,"; onActivated: window.openSettings() }
 
     RowLayout {
@@ -90,6 +97,7 @@ ApplicationWindow {
                         { label: "条目", icon: "▦", action: window.openSubjects },
                         { label: "媒体库", icon: "◫", action: window.openLibrary },
                         { label: "下载", icon: "⇩", action: window.openDownloads },
+                        { label: "隔离区", icon: "◇", action: window.openQuarantine },
                         { label: "设置", icon: "⚙", action: window.openSettings }
                     ]
                     delegate: Button {
@@ -191,10 +199,11 @@ ApplicationWindow {
 
     Component { id: homeComponent; HomePage { onOpenSubject: id => window.openSubject(id); onPlayEpisode: (id, title) => window.openPlayer(id, false, [], title) } }
     Component { id: subjectsComponent; SubjectsPage { onOpenSubject: id => window.openSubject(id) } }
-    Component { id: detailComponent; SubjectDetailPage { onBack: window.openSubjects(); onPlayEpisode: (id, fromStart, episodes, title) => window.openPlayer(id, fromStart, episodes, title) } }
+    Component { id: detailComponent; SubjectDetailPage { onBack: stack.pop(); onPlayEpisode: (id, fromStart, episodes, title) => window.openPlayer(id, fromStart, episodes, title) } }
     Component { id: playerComponent; PlayerPage { onBack: stack.pop() } }
     Component { id: libraryComponent; LibraryPage {} }
     Component { id: downloadsComponent; DownloadsPage { onOpenSubject: id => window.openSubject(id) } }
+    Component { id: quarantineComponent; QuarantinePage { onOpenSubject: id => window.openSubject(id) } }
     Component { id: settingsComponent; SettingsPage {} }
 
     Component.onCompleted: {

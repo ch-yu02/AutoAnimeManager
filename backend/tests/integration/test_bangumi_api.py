@@ -6,6 +6,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 
+import backend.app.api.subjects as subjects_api
 from backend.app.config import get_settings
 from backend.app.database.models import Episode, EpisodeFile, MediaFile, Subject
 from backend.app.database.session import get_engine, session_scope
@@ -137,3 +138,29 @@ async def test_settings_update_is_visible_to_sync_service(tmp_path: Path, monkey
         assert current.access_token.get_secret_value() == "new-token"
         assert (tmp_path / "config.yaml").stat().st_mode & 0o777 == 0o600
     _reset_caches()
+
+
+@pytest.mark.anyio
+async def test_subject_collection_update_route_writes_through_to_bangumi(monkeypatch) -> None:
+    calls: list[tuple[int, str]] = []
+
+    async def writeback(subject_id: int, collection_type: str) -> dict[str, object]:
+        calls.append((subject_id, collection_type))
+        return {
+            "subject_id": subject_id,
+            "collection_type": collection_type,
+            "synced_to_bangumi": True,
+        }
+
+    monkeypatch.setattr(subjects_api, "writeback_subject_collection", writeback)
+    app = create_app()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.patch(
+            "/api/subjects/7/collection", json={"collection_type": "ON_HOLD"}
+        )
+
+    assert response.status_code == 200
+    assert response.json()["synced_to_bangumi"] is True
+    assert calls == [(7, "ON_HOLD")]

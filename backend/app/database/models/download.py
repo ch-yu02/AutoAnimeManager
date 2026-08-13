@@ -23,6 +23,8 @@ class DownloadJob(Base):
     save_path: Mapped[str] = mapped_column(String(2000), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     imported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    replacement_media_ids_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    replaces_job_ids_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -33,7 +35,6 @@ class DownloadJobEpisode(Base):
     __tablename__ = "download_job_episodes"
     __table_args__ = (
         UniqueConstraint("job_id", "episode_id", name="uq_download_job_episode"),
-        UniqueConstraint("episode_id", name="uq_download_episode"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

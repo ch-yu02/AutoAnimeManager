@@ -71,6 +71,53 @@ def test_scorer_accepts_sequel_reset_and_continuous_episode_numbers() -> None:
     assert "按前作累计集数换算匹配" in continuous.match_reasons
 
 
+def test_scorer_rejects_s01_scope_even_when_cumulative_episode_matches() -> None:
+    result = score_release(
+        _release("[Nix-Raws] 测试动画 第三季 S01E25 [1080p][简繁内封]"),
+        subject_names=["测试动画 第三季"],
+        episode_number=1,
+        episode_numbers={1.0: "季度内集数顺序匹配", 25.0: "按前作累计集数换算匹配"},
+        subject_seasons={3},
+        config=ReleaseSearchConfig(),
+        existing_hashes=set(),
+    )
+
+    assert result.decision == "REJECT"
+    assert any("季度不匹配" in reason for reason in result.reject_reasons)
+
+
+def test_scorer_accepts_missing_scope_when_bangumi_number_is_continuous() -> None:
+    result = score_release(
+        _release("[Nix-Raws] 测试动画 - 25 [1080p][简繁内封]"),
+        subject_names=["测试动画 第三季"],
+        episode_number=25,
+        episode_numbers={25.0: "Bangumi Episode 编号匹配", 1.0: "季度内集数顺序匹配"},
+        subject_seasons={3},
+        config=ReleaseSearchConfig(),
+        existing_hashes=set(),
+    )
+
+    assert result.decision == "AUTO_ACCEPT"
+    assert "Bangumi Episode 编号匹配" in result.match_reasons
+    assert "连续集数已定位到当前季度" in result.match_reasons
+
+
+def test_scorer_accepts_ordinal_season_scope() -> None:
+    result = score_release(
+        _release("[字幕组] 测试动画 3rd Season - 25 [1080p][CHS]"),
+        subject_names=["测试动画 第三季"],
+        episode_number=25,
+        episode_numbers={25.0: "Bangumi Episode 编号匹配", 1.0: "季度内集数顺序匹配"},
+        subject_seasons={3},
+        config=ReleaseSearchConfig(),
+        existing_hashes=set(),
+    )
+
+    assert result.parsed.season == 3
+    assert result.decision == "AUTO_ACCEPT"
+    assert "季度匹配" in result.match_reasons
+
+
 def test_scorer_rejects_cross_season_candidate() -> None:
     result = score_release(
         _release("[Group] Test Anime S2 - 06 [1080p]"),
@@ -98,3 +145,17 @@ def test_scorer_respects_part_scope() -> None:
     assert result.parsed.part == 2
     assert result.decision == "REJECT"
     assert any("Part不匹配" in reason for reason in result.reject_reasons)
+
+
+def test_scorer_records_built_in_subtitle_and_chinese_group_preferences() -> None:
+    result = score_release(
+        _release("[北宇治字幕组] 测试动画 - 06 [1080p][CHS&JPN]"),
+        subject_names=["测试动画"],
+        episode_number=6,
+        config=ReleaseSearchConfig(),
+        existing_hashes=set(),
+    )
+
+    assert result.decision == "AUTO_ACCEPT"
+    assert "简日双语字幕偏好" in result.match_reasons
+    assert "字幕组名称含汉字" in result.match_reasons

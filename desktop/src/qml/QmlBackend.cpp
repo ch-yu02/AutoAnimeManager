@@ -7,6 +7,7 @@
 #include <QNetworkRequest>
 #include <QUrlQuery>
 
+#include <algorithm>
 #include <utility>
 
 namespace autoanime {
@@ -29,6 +30,8 @@ QmlBackend::QmlBackend(QUrl baseUrl, QObject *parent)
     });
     m_downloadTimer.setInterval(1500);
     connect(&m_downloadTimer, &QTimer::timeout, this, &QmlBackend::loadDownloads);
+    m_schedulerTimer.setInterval(1500);
+    connect(&m_schedulerTimer, &QTimer::timeout, this, &QmlBackend::loadScheduler);
 }
 
 QUrl QmlBackend::url(const QString &path) const
@@ -139,6 +142,20 @@ void QmlBackend::loadSubject(qint64 subjectId)
     loadDownloads();
 }
 
+void QmlBackend::setSubjectCollection(qint64 subjectId, const QString &collectionType)
+{
+    if (subjectId <= 0 || collectionType.isEmpty()) {
+        return;
+    }
+    send("PATCH", QStringLiteral("api/subjects/%1/collection").arg(subjectId), {
+        {QStringLiteral("collection_type"), collectionType},
+    }, [this, subjectId](const QVariant &) {
+        loadSubject(subjectId);
+        loadHome();
+        setNotice(QStringLiteral("收藏状态已同步到 Bangumi"));
+    });
+}
+
 void QmlBackend::loadLibrary()
 {
     clearMessage();
@@ -155,10 +172,28 @@ void QmlBackend::loadLibrary()
         }
         emit libraryChanged();
     });
-    send("GET", QStringLiteral("api/subjects"), {}, [this](const QVariant &value) {
-        m_subjects = value.toList();
-        emit subjectsChanged();
-    });
+}
+
+void QmlBackend::searchLibrarySubjects(const QString &query)
+{
+    const QString normalized = query.trimmed();
+    m_librarySubjectQuery = normalized;
+    if (normalized.isEmpty()) {
+        m_librarySubjectMatches.clear();
+        emit librarySubjectMatchesChanged();
+        return;
+    }
+    QUrlQuery params;
+    params.addQueryItem(QStringLiteral("query"), normalized);
+    params.addQueryItem(QStringLiteral("limit"), QStringLiteral("20"));
+    send("GET", QStringLiteral("api/subjects/search?") + params.toString(), {},
+        [this, normalized](const QVariant &value) {
+            if (normalized != m_librarySubjectQuery) {
+                return;
+            }
+            m_librarySubjectMatches = value.toList();
+            emit librarySubjectMatchesChanged();
+        });
 }
 
 void QmlBackend::loadSettings()
@@ -168,6 +203,97 @@ void QmlBackend::loadSettings()
         m_settings = value.toMap();
         emit settingsChanged();
     });
+}
+
+void QmlBackend::loadScheduler()
+{
+    send("GET", QStringLiteral("api/scheduler"), {}, [this](const QVariant &value) {
+        m_scheduler = value.toMap();
+        const QVariantList tasks = m_scheduler.value(QStringLiteral("tasks")).toList();
+        const bool active = std::any_of(tasks.cbegin(), tasks.cend(), [](const QVariant &task) {
+            return task.toMap().value(QStringLiteral("active")).toBool();
+        });
+        if (active) {
+            m_schedulerTimer.start();
+        } else {
+            m_schedulerTimer.stop();
+        }
+        emit schedulerChanged();
+    });
+}
+
+void QmlBackend::runSchedulerTask(const QString &taskName)
+{
+    if (taskName.isEmpty()) {
+        return;
+    }
+    send("POST", QStringLiteral("api/scheduler/tasks/%1/run").arg(taskName), {},
+        [this, taskName](const QVariant &value) {
+            const QVariantMap run = value.toMap();
+            const QString status = run.value(QStringLiteral("status")).toString();
+            setNotice(QStringLiteral("%1：%2").arg(taskName, status));
+            loadScheduler();
+            if (taskName == QStringLiteral("DownloadMonitor")) {
+                loadDownloads();
+            }
+        });
+}
+
+void QmlBackend::loadCleanup(qint64 subjectId)
+{
+    send("GET", QStringLiteral("api/cleanup/subjects/%1").arg(subjectId), {},
+        [this](const QVariant &value) {
+            m_cleanupEligibility = value.toMap();
+            emit cleanupChanged();
+        });
+}
+
+void QmlBackend::loadCleanupRecords()
+{
+    send("GET", QStringLiteral("api/cleanup/records"), {}, [this](const QVariant &value) {
+        m_cleanupRecords = value.toList();
+        emit cleanupChanged();
+    });
+}
+
+void QmlBackend::setSubjectKeepForever(qint64 subjectId, bool keepForever)
+{
+    send("PATCH", QStringLiteral("api/cleanup/subjects/%1/keep").arg(subjectId), {
+        {QStringLiteral("keep_forever"), keepForever},
+    }, [this, subjectId, keepForever](const QVariant &) {
+        setNotice(keepForever ? QStringLiteral("条目已设为永久保留") : QStringLiteral("已取消永久保留"));
+        loadSubject(subjectId);
+        loadCleanup(subjectId);
+    });
+}
+
+void QmlBackend::quarantineSubject(qint64 subjectId)
+{
+    send("POST", QStringLiteral("api/cleanup/subjects/%1/quarantine").arg(subjectId), {},
+        [this, subjectId](const QVariant &) {
+            setNotice(QStringLiteral("媒体已移入隔离区，可在隔离区页恢复"));
+            loadSubject(subjectId);
+            loadCleanup(subjectId);
+            loadCleanupRecords();
+        });
+}
+
+void QmlBackend::restoreCleanup(const QString &recordId)
+{
+    send("POST", QStringLiteral("api/cleanup/records/%1/restore").arg(recordId), {},
+        [this](const QVariant &) {
+            setNotice(QStringLiteral("隔离媒体已恢复到原路径"));
+            loadCleanupRecords();
+        });
+}
+
+void QmlBackend::permanentlyDeleteCleanup(const QString &recordId)
+{
+    send("POST", QStringLiteral("api/cleanup/records/%1/permanent-delete").arg(recordId), {},
+        [this](const QVariant &) {
+            setNotice(QStringLiteral("隔离媒体已永久删除，历史记录仍保留"));
+            loadCleanupRecords();
+        });
 }
 
 void QmlBackend::loadDownloads()
@@ -245,6 +371,40 @@ void QmlBackend::searchReleases(qint64 episodeId)
         m_releaseSearch = value.toMap();
         emit releaseSearchChanged();
     });
+}
+
+void QmlBackend::debugSearchReleases(qint64 episodeId)
+{
+    m_releaseSearch.clear();
+    emit releaseSearchChanged();
+    send("POST", QStringLiteral("api/releases/search"), {
+        {QStringLiteral("episode_id"), episodeId},
+    }, [this](const QVariant &value) {
+        m_releaseSearch = value.toMap();
+        emit releaseSearchChanged();
+        debugAutoSelect(m_releaseSearch.value(QStringLiteral("id")).toString());
+    });
+}
+
+void QmlBackend::debugAutoSelect(const QString &searchId)
+{
+    if (searchId.isEmpty()) {
+        return;
+    }
+    send("POST", QStringLiteral("api/releases/search/%1/debug-auto-select").arg(searchId), {},
+        [this](const QVariant &value) {
+            m_releaseSearch = value.toMap();
+            const QVariantList candidates = m_releaseSearch.value(QStringLiteral("candidates")).toList();
+            const bool selected = std::any_of(
+                candidates.cbegin(), candidates.cend(), [](const QVariant &candidate) {
+                    return candidate.toMap().value(QStringLiteral("debug_selected_at")).isValid();
+                }
+            );
+            setNotice(selected
+                ? QStringLiteral("已标注自动选择候选；未创建下载任务")
+                : QStringLiteral("没有满足 AUTO_ACCEPT 条件的候选；未创建下载任务"));
+            emit releaseSearchChanged();
+        });
 }
 
 void QmlBackend::downloadReleaseCandidate(const QString &candidateId)
@@ -344,7 +504,11 @@ void QmlBackend::saveSettings(
     const QString &qbittorrentUsername,
     const QString &qbittorrentPassword,
     bool autoPlayNext,
-    bool bangumiWriteback
+    bool bangumiWriteback,
+    bool autoDownloadEnabled,
+    bool cleanupEnabled,
+    int cleanupRetentionDays,
+    int cleanupQuarantineDays
 )
 {
     QJsonArray roots;
@@ -359,6 +523,10 @@ void QmlBackend::saveSettings(
         {QStringLiteral("qbittorrent_base_url"), qbittorrentBaseUrl.trimmed()},
         {QStringLiteral("auto_play_next"), autoPlayNext},
         {QStringLiteral("bangumi_writeback_enabled"), bangumiWriteback},
+        {QStringLiteral("auto_download_enabled"), autoDownloadEnabled},
+        {QStringLiteral("cleanup_enabled"), cleanupEnabled},
+        {QStringLiteral("cleanup_retention_days"), cleanupRetentionDays},
+        {QStringLiteral("cleanup_quarantine_days"), cleanupQuarantineDays},
     };
     if (!token.isEmpty()) {
         body.insert(QStringLiteral("bangumi_access_token"), token);
@@ -387,7 +555,7 @@ void QmlBackend::testConnection(const QString &service)
 void QmlBackend::startBangumiSync()
 {
     send("POST", QStringLiteral("api/bangumi/sync"), {}, [this](const QVariant &) {
-        setNotice(QStringLiteral("Bangumi 同步已启动"));
+        setNotice(QStringLiteral("Bangumi 完整同步已启动"));
     });
 }
 

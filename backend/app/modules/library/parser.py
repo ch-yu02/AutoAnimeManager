@@ -12,7 +12,7 @@ RELEASE_TAGS = {
     "x264", "x265", "h264", "h265", "hevc", "avc", "av1", "aac", "flac",
     "mp4", "mkv", "chs", "cht", "sc", "tc", "gb", "big5",
 }
-PARSER_VERSION = 5
+PARSER_VERSION = 6
 GROUP_PATTERN = re.compile(r"^\[([^]]+)]")
 BRACKET_PATTERN = re.compile(r"[\[【(（]([^\]】)）]+)[\]】)）]")
 RANGE_PATTERN = re.compile(
@@ -67,6 +67,8 @@ def _is_release_metadata(value: str) -> bool:
     if re.search(r"\d+(?:fps|hz)", compact, re.I):
         return True
     if re.fullmatch(r"[0-9a-f]{8}", compact, re.I):
+        return True
+    if re.fullmatch(r"v\d+", compact, re.I):
         return True
     if re.fullmatch(r"(?:chs?|cht|jpn|eng|jpsc|baha|end|aacx?\d*|flac|assx?\d*)+", compact, re.I):
         return True

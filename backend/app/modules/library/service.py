@@ -42,6 +42,16 @@ class LibraryScanService:
         self._active_task = asyncio.create_task(self._run(task_id))
         return ScanStart(task_id, "RUNNING")
 
+    async def scan_now(self) -> dict[str, object]:
+        started = await self.start()
+        task = self._active_task
+        if task is not None:
+            await task
+        result = self.status(started.task_id)
+        if result["status"] == "FAILED":
+            raise RuntimeError(str(result.get("error_summary") or "媒体库扫描失败"))
+        return result
+
     async def rematch_review(self) -> dict[str, int]:
         if self._active_id or self._rematching:
             raise LibraryBusyError("媒体库任务正在运行")

@@ -39,6 +39,9 @@ class BangumiConfig(BaseModel):
     timeout: float = Field(default=10.0, gt=0, le=120)
     page_size: int = Field(default=50, ge=1, le=100)
     cache_ttl_seconds: float = Field(default=30.0, ge=0, le=300)
+    sync_concurrency: int = Field(default=6, ge=1, le=12)
+    metadata_refresh_hours: float = Field(default=24.0, ge=1, le=720)
+    relations_refresh_hours: float = Field(default=168.0, ge=1, le=2160)
 
 
 class QBittorrentConfig(BaseModel):
@@ -62,6 +65,7 @@ class ReleaseSearchConfig(BaseModel):
     preferred_resolution: str = "1080p"
     preferred_codec: str = ""
     allow_batch: bool = False
+    debug_auto_selection_enabled: bool = False
 
 
 class PlayerConfig(BaseModel):
@@ -70,7 +74,7 @@ class PlayerConfig(BaseModel):
     watched_ratio: float = Field(default=0.9, ge=0.5, le=1)
     watched_remaining_seconds: float = Field(default=300.0, ge=0, le=1800)
     auto_play_next: bool = False
-    bangumi_writeback_enabled: bool = False
+    bangumi_writeback_enabled: bool = True
 
 
 class StorageConfig(BaseModel):
@@ -83,6 +87,7 @@ class StorageConfig(BaseModel):
     ffprobe_path: str = "ffprobe"
     ffprobe_enabled: bool = True
     partial_hash_bytes: int = Field(default=1024 * 1024, ge=64 * 1024, le=16 * 1024 * 1024)
+
 
     @field_validator("video_extensions")
     @classmethod
@@ -101,8 +106,24 @@ class StorageConfig(BaseModel):
         return self.library_roots or [self.library_path]
 
 
-class SchedulerConfig(BaseModel):
+class CleanupConfig(BaseModel):
     enabled: bool = False
+    retention_days: int = Field(default=14, ge=0, le=3650)
+    quarantine_days: int = Field(default=7, ge=1, le=365)
+    interval_seconds: float = Field(default=86400.0, ge=30, le=86400)
+
+
+class SchedulerConfig(BaseModel):
+    enabled: bool = True
+    auto_download_enabled: bool = False
+    auto_download_interval_seconds: float = Field(default=86400.0, ge=30, le=86400)
+    tick_seconds: float = Field(default=2.0, ge=0.5, le=60)
+    bangumi_sync_interval_seconds: float = Field(default=1800.0, ge=30, le=86400)
+    library_scan_interval_seconds: float = Field(default=900.0, ge=30, le=86400)
+    demand_refresh_interval_seconds: float = Field(default=60.0, ge=5, le=3600)
+    download_monitor_interval_seconds: float = Field(default=3.0, ge=0.5, le=300)
+    failure_backoff_seconds: float = Field(default=30.0, ge=1, le=3600)
+    failure_backoff_max_seconds: float = Field(default=1800.0, ge=1, le=86400)
 
 
 class AppSettings(BaseSettings):
@@ -113,6 +134,7 @@ class AppSettings(BaseSettings):
     release_search: ReleaseSearchConfig = ReleaseSearchConfig()
     player: PlayerConfig = PlayerConfig()
     storage: StorageConfig = StorageConfig()
+    cleanup: CleanupConfig = CleanupConfig()
     scheduler: SchedulerConfig = SchedulerConfig()
 
     model_config = SettingsConfigDict(

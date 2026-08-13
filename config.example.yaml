@@ -14,6 +14,10 @@ bangumi:
   timeout: 10
   page_size: 50
   cache_ttl_seconds: 30
+  # Bangumi 同步的全局请求并发上限；过高可能触发 API 限流。
+  sync_concurrency: 6
+  metadata_refresh_hours: 24
+  relations_refresh_hours: 168
 
 qbittorrent:
   base_url: http://127.0.0.1:8080
@@ -38,6 +42,8 @@ release_search:
   preferred_resolution: 1080p
   preferred_codec: ""
   allow_batch: false
+  # 内部调试开关；开启后客户端才显示“调试自动选择”。
+  debug_auto_selection_enabled: false
 
 player:
   progress_save_interval_seconds: 15
@@ -45,7 +51,7 @@ player:
   watched_ratio: 0.9
   watched_remaining_seconds: 300
   auto_play_next: false
-  bangumi_writeback_enabled: false
+  bangumi_writeback_enabled: true
 
 storage:
   # qBittorrent 任务直接下载到第一个媒体库根目录下的 Subject 文件夹。
@@ -59,6 +65,24 @@ storage:
   ffprobe_enabled: true
   partial_hash_bytes: 1048576
 
-# 当前仅支持手动触发 Bangumi 同步和媒体库扫描。
-scheduler:
+cleanup:
+  # 自动清理默认关闭；手动预览、隔离和恢复始终可用。
   enabled: false
+  retention_days: 14
+  quarantine_days: 7
+  # 自动清理每天执行一次；仍可在 Settings 中手动立即执行。
+  interval_seconds: 86400
+
+scheduler:
+  enabled: true
+  # 仅处理“在看”条目中已放送、未看、缺少本地文件的 MAIN 单集。
+  auto_download_enabled: false
+  # 自动资源搜索每天执行一次；仍可在 Settings 中手动立即执行。
+  auto_download_interval_seconds: 86400
+  tick_seconds: 2
+  bangumi_sync_interval_seconds: 1800
+  library_scan_interval_seconds: 900
+  demand_refresh_interval_seconds: 60
+  download_monitor_interval_seconds: 3
+  failure_backoff_seconds: 30
+  failure_backoff_max_seconds: 1800

@@ -28,9 +28,13 @@ class QmlBackend final : public QObject {
     Q_PROPERTY(QVariantList episodes READ episodes NOTIFY subjectChanged)
     Q_PROPERTY(QVariantMap review READ review NOTIFY libraryChanged)
     Q_PROPERTY(QVariantMap scanStatus READ scanStatus NOTIFY libraryChanged)
+    Q_PROPERTY(QVariantList librarySubjectMatches READ librarySubjectMatches NOTIFY librarySubjectMatchesChanged)
     Q_PROPERTY(QVariantMap settings READ settings NOTIFY settingsChanged)
     Q_PROPERTY(QVariantList downloads READ downloads NOTIFY downloadsChanged)
     Q_PROPERTY(QVariantMap releaseSearch READ releaseSearch NOTIFY releaseSearchChanged)
+    Q_PROPERTY(QVariantMap scheduler READ scheduler NOTIFY schedulerChanged)
+    Q_PROPERTY(QVariantMap cleanupEligibility READ cleanupEligibility NOTIFY cleanupChanged)
+    Q_PROPERTY(QVariantList cleanupRecords READ cleanupRecords NOTIFY cleanupChanged)
 
 public:
     explicit QmlBackend(QUrl baseUrl, QObject *parent = nullptr);
@@ -47,15 +51,29 @@ public:
     QVariantList episodes() const { return m_episodes; }
     QVariantMap review() const { return m_review; }
     QVariantMap scanStatus() const { return m_scanStatus; }
+    QVariantList librarySubjectMatches() const { return m_librarySubjectMatches; }
     QVariantMap settings() const { return m_settings; }
     QVariantList downloads() const { return m_downloads; }
     QVariantMap releaseSearch() const { return m_releaseSearch; }
+    QVariantMap scheduler() const { return m_scheduler; }
+    QVariantMap cleanupEligibility() const { return m_cleanupEligibility; }
+    QVariantList cleanupRecords() const { return m_cleanupRecords; }
 
     Q_INVOKABLE void loadHome();
     Q_INVOKABLE void loadSubjects(const QString &collectionType, bool localOnly);
     Q_INVOKABLE void loadSubject(qint64 subjectId);
+    Q_INVOKABLE void setSubjectCollection(qint64 subjectId, const QString &collectionType);
     Q_INVOKABLE void loadLibrary();
+    Q_INVOKABLE void searchLibrarySubjects(const QString &query);
     Q_INVOKABLE void loadSettings();
+    Q_INVOKABLE void loadScheduler();
+    Q_INVOKABLE void runSchedulerTask(const QString &taskName);
+    Q_INVOKABLE void loadCleanup(qint64 subjectId);
+    Q_INVOKABLE void loadCleanupRecords();
+    Q_INVOKABLE void setSubjectKeepForever(qint64 subjectId, bool keepForever);
+    Q_INVOKABLE void quarantineSubject(qint64 subjectId);
+    Q_INVOKABLE void restoreCleanup(const QString &recordId);
+    Q_INVOKABLE void permanentlyDeleteCleanup(const QString &recordId);
     Q_INVOKABLE void loadDownloads();
     Q_INVOKABLE void setDownloadPolling(bool enabled);
     Q_INVOKABLE void addDownload(qint64 episodeId, const QString &magnet);
@@ -64,6 +82,8 @@ public:
     Q_INVOKABLE void retryDownload(const QString &jobId);
     Q_INVOKABLE void deleteDownload(const QString &jobId, bool deleteFiles);
     Q_INVOKABLE void searchReleases(qint64 episodeId);
+    Q_INVOKABLE void debugSearchReleases(qint64 episodeId);
+    Q_INVOKABLE void debugAutoSelect(const QString &searchId);
     Q_INVOKABLE void downloadReleaseCandidate(const QString &candidateId);
     Q_INVOKABLE void startLibraryScan();
     Q_INVOKABLE void rematchReview();
@@ -80,7 +100,11 @@ public:
         const QString &qbittorrentUsername,
         const QString &qbittorrentPassword,
         bool autoPlayNext,
-        bool bangumiWriteback
+        bool bangumiWriteback,
+        bool autoDownloadEnabled,
+        bool cleanupEnabled,
+        int cleanupRetentionDays,
+        int cleanupQuarantineDays
     );
     Q_INVOKABLE void testConnection(const QString &service);
     Q_INVOKABLE void startBangumiSync();
@@ -96,9 +120,12 @@ signals:
     void subjectsChanged();
     void subjectChanged();
     void libraryChanged();
+    void librarySubjectMatchesChanged();
     void settingsChanged();
     void downloadsChanged();
     void releaseSearchChanged();
+    void schedulerChanged();
+    void cleanupChanged();
 
 private:
     using Handler = std::function<void(const QVariant &)>;
@@ -111,6 +138,7 @@ private:
     QNetworkAccessManager *m_network;
     QTimer m_scanTimer;
     QTimer m_downloadTimer;
+    QTimer m_schedulerTimer;
     QUrl m_baseUrl;
     int m_pending{0};
     QString m_error;
@@ -124,9 +152,14 @@ private:
     QVariantList m_episodes;
     QVariantMap m_review;
     QVariantMap m_scanStatus;
+    QVariantList m_librarySubjectMatches;
+    QString m_librarySubjectQuery;
     QVariantMap m_settings;
     QVariantList m_downloads;
     QVariantMap m_releaseSearch;
+    QVariantMap m_scheduler;
+    QVariantMap m_cleanupEligibility;
+    QVariantList m_cleanupRecords;
 };
 
 } // namespace autoanime

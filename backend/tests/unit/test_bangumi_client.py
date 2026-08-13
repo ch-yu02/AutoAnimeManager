@@ -200,3 +200,36 @@ async def test_episode_watch_state_writeback_uses_official_endpoint() -> None:
     assert captured[0].url.path == "/v0/users/-/collections/-/episodes/123"
     assert captured[0].read() == b'{"type":2}'
     await http_client.aclose()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("collection_type", "type_value"),
+    [
+        ("WISH", 1),
+        ("COLLECTED", 2),
+        ("DOING", 3),
+        ("ON_HOLD", 4),
+        ("DROPPED", 5),
+    ],
+)
+async def test_subject_collection_writeback_uses_official_endpoint(
+    collection_type: str, type_value: int
+) -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(204)
+
+    http_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="https://api.bgm.tv"
+    )
+    client = BangumiClient(BangumiConfig(access_token="token"), http_client=http_client)
+
+    await client.set_subject_collection(123, collection_type)
+
+    assert captured[0].method == "POST"
+    assert captured[0].url.path == "/v0/users/-/collections/123"
+    assert captured[0].read() == f'{{"type":{type_value}}}'.encode()
+    await http_client.aclose()

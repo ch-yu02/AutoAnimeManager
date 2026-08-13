@@ -22,7 +22,7 @@ Page {
             TextField { id: token; Layout.fillWidth: true; placeholderText: "Access Token（留空表示保留）"; echoMode: TextInput.Password }
             RowLayout {
                 Button { text: "测试 Bangumi"; onClicked: backend.testConnection("bangumi") }
-                Button { text: "手动同步"; onClicked: backend.startBangumiSync() }
+                Button { text: "完整同步"; onClicked: backend.startBangumiSync() }
             }
             Rectangle { Layout.fillWidth: true; height: 1; color: "#283445" }
             Label { text: "qBittorrent"; color: "#f2f5f8"; font.pixelSize: 20; font.weight: Font.DemiBold }
@@ -36,6 +36,57 @@ Page {
                 wrapMode: Text.Wrap
             }
             Button { text: "测试 qBittorrent"; onClicked: backend.testConnection("qbittorrent") }
+            CheckBox {
+                id: autoDownload
+                text: "自动下载在看条目的已放送未看正片"
+            }
+            Rectangle { Layout.fillWidth: true; height: 1; color: "#283445" }
+            Label { text: "文件清理"; color: "#f2f5f8"; font.pixelSize: 20; font.weight: Font.DemiBold }
+            CheckBox { id: cleanupEnabled; text: "启用自动隔离和到期永久删除" }
+            RowLayout {
+                Label { text: "看完后保留天数"; color: "#f2f5f8" }
+                SpinBox { id: retentionDays; from: 0; to: 3650; value: 14 }
+                Label { text: "隔离区保留天数"; color: "#f2f5f8" }
+                SpinBox { id: quarantineDays; from: 1; to: 365; value: 7 }
+            }
+            Label {
+                Layout.fillWidth: true
+                text: "永久删除前会重新检查资格；Subject、Episode、观看历史、下载记录和清理日志不会删除。"
+                color: "#93a1b2"
+                wrapMode: Text.Wrap
+            }
+            Label { text: "自动任务"; color: "#f2f5f8"; font.pixelSize: 20; font.weight: Font.DemiBold }
+            Label {
+                Layout.fillWidth: true
+                text: "任务失败会自动退避并在重启后恢复。手动执行不受定时间隔限制。"
+                color: "#93a1b2"
+                wrapMode: Text.Wrap
+            }
+            Repeater {
+                model: (backend.scheduler.tasks || [])
+                delegate: RowLayout {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    Label {
+                        Layout.preferredWidth: 170
+                        text: modelData.name
+                        color: "#f2f5f8"
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: modelData.latest
+                            ? modelData.latest.status + (modelData.latest.error ? " · " + modelData.latest.error : "")
+                            : "尚未执行"
+                        color: modelData.latest && modelData.latest.status === "FAILED" ? "#ff9f9f" : "#93a1b2"
+                        elide: Text.ElideRight
+                    }
+                    Button {
+                        text: modelData.active ? "运行中" : "立即执行"
+                        enabled: !modelData.active && !backend.busy
+                        onClicked: backend.runSchedulerTask(modelData.name)
+                    }
+                }
+            }
             Rectangle { Layout.fillWidth: true; height: 1; color: "#283445" }
             Label { text: "媒体目录"; color: "#f2f5f8"; font.pixelSize: 20; font.weight: Font.DemiBold }
             TextArea { id: roots; Layout.fillWidth: true; Layout.preferredHeight: 100; placeholderText: "每行一个扫描目录"; wrapMode: TextEdit.NoWrap }
@@ -53,7 +104,8 @@ Page {
                 onClicked: backend.saveSettings(
                     username.text, token.text, roots.text,
                     qbBaseUrl.text, qbUsername.text, qbPassword.text,
-                    autoPlay.checked, writeback.checked
+                    autoPlay.checked, writeback.checked, autoDownload.checked,
+                    cleanupEnabled.checked, retentionDays.value, quarantineDays.value
                 )
             }
             Item { Layout.preferredHeight: 24 }
@@ -67,11 +119,17 @@ Page {
             const storage = backend.settings.storage || {}
             const playerSettings = backend.settings.player || {}
             const qbittorrent = backend.settings.qbittorrent || {}
+            const scheduler = backend.settings.scheduler || {}
+            const cleanup = backend.settings.cleanup || {}
             username.text = bangumi.username || ""
             const values = storage.library_roots || (storage.library_path ? [storage.library_path] : ["data/library"])
             roots.text = values.join("\n")
             autoPlay.checked = playerSettings.auto_play_next || false
             writeback.checked = playerSettings.bangumi_writeback_enabled || false
+            autoDownload.checked = scheduler.auto_download_enabled || false
+            cleanupEnabled.checked = cleanup.enabled || false
+            retentionDays.value = cleanup.retention_days === undefined ? 14 : cleanup.retention_days
+            quarantineDays.value = cleanup.quarantine_days === undefined ? 7 : cleanup.quarantine_days
             qbBaseUrl.text = qbittorrent.base_url || "http://127.0.0.1:8080"
             qbUsername.text = qbittorrent.username || ""
             qbPassword.text = ""
@@ -79,5 +137,8 @@ Page {
         }
     }
     BusyIndicator { anchors.centerIn: parent; running: backend.busy }
-    Component.onCompleted: backend.loadSettings()
+    Component.onCompleted: {
+        backend.loadSettings()
+        backend.loadScheduler()
+    }
 }

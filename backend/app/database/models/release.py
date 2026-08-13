@@ -51,6 +51,7 @@ class ReleaseCandidate(Base):
     match_reasons: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     reject_reasons: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     duplicate: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    debug_selected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     selected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     download_job_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

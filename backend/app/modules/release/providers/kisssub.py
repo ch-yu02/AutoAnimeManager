@@ -8,6 +8,7 @@ import xml.etree.ElementTree as ET
 import httpx
 
 from backend.app.modules.download.magnet import InvalidMagnet, normalize_magnet
+from backend.app.modules.library.matcher import base_title
 from backend.app.modules.release.provider import ReleaseProviderError
 from backend.app.modules.release.schemas import RawRelease
 
@@ -21,7 +22,7 @@ class KissSubRSSProvider:
 
     async def search(self, subject_names: list[str], episode_number: float | None) -> list[RawRelease]:
         config = self.settings_provider()
-        terms = list(dict.fromkeys(name.strip() for name in subject_names if name.strip()))[:config.max_query_terms]
+        terms = _search_terms(subject_names, config.max_query_terms)
         urls = (
             [_rss_url(config.rss_url, config.rss_url_template, term) for term in terms]
             if config.rss_url_template
@@ -60,6 +61,23 @@ class KissSubRSSProvider:
                     if len(unique) >= config.max_results:
                         return list(unique.values())
         return list(unique.values())
+
+
+def _search_terms(subject_names: list[str], limit: int) -> list[str]:
+    names = list(dict.fromkeys(name.strip() for name in subject_names if name.strip()))
+    if not names:
+        return []
+    terms = [names[0]]
+    primary_base = base_title(names[0])
+    if primary_base and primary_base != names[0].casefold():
+        terms.append(primary_base)
+    for name in names[1:]:
+        if name not in terms:
+            terms.append(name)
+        base = base_title(name)
+        if base and base not in {item.casefold() for item in terms}:
+            terms.append(base)
+    return terms[:limit]
 
 
 def _rss_url(fallback_url: str, template: str, subject_name: str) -> str:

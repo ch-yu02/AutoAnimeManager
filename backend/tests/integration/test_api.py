@@ -3,6 +3,7 @@ import sqlite3
 
 import httpx
 import pytest
+import yaml
 from alembic import command
 from alembic.config import Config
 
@@ -44,12 +45,19 @@ async def test_health_and_redacted_settings(tmp_path: Path, monkeypatch) -> None
         ) as client:
             health = await client.get("/api/health")
             settings = await client.get("/api/settings")
+            scheduler = await client.get("/api/scheduler")
 
     assert health.status_code == 200
     assert health.json()["database"]["status"] == "ok"
     assert settings.status_code == 200
     assert settings.json()["bangumi"]["access_token"] == "***"
     assert "must-not-leak" not in settings.text
+    assert scheduler.status_code == 200
+    assert {task["name"] for task in scheduler.json()["tasks"]} == {
+        "BangumiSync", "LibraryScan", "DemandRefresh", "ReleaseSearch", "DownloadMonitor", "Cleanup",
+    }
+    with sqlite3.connect(tmp_path / "test.db") as connection:
+        assert connection.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
     _reset_caches()
 
 
@@ -71,6 +79,54 @@ async def test_connection_placeholders_are_explicit(tmp_path: Path, monkeypatch)
 
     assert bangumi.json()["status"] == "not_configured"
     assert qbittorrent.json()["status"] == "not_configured"
+    _reset_caches()
+
+
+@pytest.mark.anyio
+async def test_settings_persist_independent_auto_download_switch(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "player:\n  bangumi_writeback_enabled: false\n"
+        "scheduler:\n  auto_download_enabled: false\n"
+        "cleanup:\n  enabled: false\n  retention_days: 14\n  quarantine_days: 7\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AUTOANIME_CONFIG", str(config))
+    _reset_caches()
+    app = create_app()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.patch(
+            "/api/settings",
+            json={
+                "bangumi_writeback_enabled": True,
+                "auto_download_enabled": True,
+                "cleanup_enabled": True,
+                "cleanup_retention_days": 30,
+                "cleanup_quarantine_days": 10,
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["player"]["bangumi_writeback_enabled"] is True
+    assert response.json()["scheduler"]["auto_download_enabled"] is True
+    assert response.json()["cleanup"] == {
+        "enabled": True,
+        "retention_days": 30,
+        "quarantine_days": 10,
+        "interval_seconds": 86400.0,
+    }
+    persisted = yaml.safe_load(config.read_text(encoding="utf-8"))
+    assert persisted["player"]["bangumi_writeback_enabled"] is True
+    assert persisted["scheduler"]["auto_download_enabled"] is True
+    assert persisted["cleanup"] == {
+        "enabled": True,
+        "retention_days": 30,
+        "quarantine_days": 10,
+    }
     _reset_caches()
 
 

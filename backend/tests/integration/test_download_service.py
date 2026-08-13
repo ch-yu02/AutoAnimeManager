@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -10,9 +12,12 @@ from alembic.config import Config
 from sqlalchemy import select
 
 from backend.app.config import get_settings
-from backend.app.database.models import DownloadJob, DownloadJobEpisode, Episode, EpisodeFile, MediaFile, Subject
+from backend.app.database.models import DownloadJob, DownloadJobEpisode, Episode, EpisodeFile, MediaFile, Subject, TaskRun
 from backend.app.database.session import get_engine, session_scope
 from backend.app.modules.download.service import DownloadService, DuplicateDownload
+from backend.app.modules.release.schemas import RawRelease
+from backend.app.modules.release.service import ReleaseSearchService
+from backend.app.modules.scheduler import AutoDownloadScheduler, DemandPlanner, SchedulerService
 
 
 class FakeQBittorrent:
@@ -46,6 +51,25 @@ class FakeQBittorrent:
 
     async def close(self) -> None:
         return None
+
+
+class FakeReleaseProvider:
+    name = "fake"
+
+    def __init__(self, magnet: str) -> None:
+        self.magnet = magnet
+
+    async def search(self, subject_names, episode_number):
+        return [RawRelease(
+            source_id="phase4-release",
+            title="[TestGroup] 测试动画 - 01 [1080p][HEVC]",
+            description="",
+            release_url="https://example.test/phase4",
+            magnet_uri=self.magnet,
+            published_at=None,
+            author="TestGroup",
+            category="动画",
+        )]
 
 
 def _reset() -> None:
@@ -116,6 +140,7 @@ async def test_completed_download_is_registered_in_place(tmp_path: Path, monkeyp
         assert mapping is not None and mapping.mapping_source == "DOWNLOAD_JOB" and mapping.manually_locked
         assert media is not None and media.subject_mapping_source == "DOWNLOAD_JOB"
         assert episode is not None and episode.local_status == "READY"
+        assert episode.successfully_imported_at is not None
         target = Path(media.path)
     assert target == source.resolve()
     assert json.loads((target.parent / "manifest.json").read_text(encoding="utf-8"))["subject_id"] == 42
@@ -128,6 +153,125 @@ async def test_completed_download_is_registered_in_place(tmp_path: Path, monkeyp
     await service.reconcile(str(result["id"]))
     assert service.get(str(result["id"]))["state"] == "IMPORTED"
     assert adapter.deleted == []
+    await service.stop()
+    _reset()
+
+
+@pytest.mark.anyio
+async def test_reconcile_all_times_out_one_job_without_blocking_others(
+    tmp_path: Path, monkeypatch
+) -> None:
+    download, _, episode_id, second_episode_id = _prepare(tmp_path, monkeypatch)
+    hanging_hash = "1" * 40
+    healthy_hash = "2" * 40
+    with session_scope() as session:
+        first = session.get(Episode, episode_id)
+        assert first is not None
+        for job_id, torrent_hash, target_episode in (
+            ("hanging-job", hanging_hash, episode_id),
+            ("healthy-job", healthy_hash, second_episode_id),
+        ):
+            session.add(DownloadJob(
+                id=job_id,
+                magnet_uri="magnet:?xt=urn:btih:" + torrent_hash,
+                magnet_hash=torrent_hash,
+                torrent_hash=torrent_hash,
+                subject_id=first.subject_id,
+                save_path=str(download),
+                state="DOWNLOADING",
+            ))
+            session.flush()
+            session.add(DownloadJobEpisode(job_id=job_id, episode_id=target_episode))
+
+    class PartiallyHangingQBittorrent(FakeQBittorrent):
+        async def status(self, torrent_hash: str) -> dict[str, object]:
+            if torrent_hash == hanging_hash:
+                await asyncio.Event().wait()
+            return {"hash": torrent_hash, "progress": 0.5, "state": "downloading"}
+
+    service = DownloadService(
+        adapter=PartiallyHangingQBittorrent([]),
+        reconcile_timeout_seconds=0.05,
+        sync_concurrency=2,
+    )
+    started = time.monotonic()
+
+    result = await service.reconcile_all()
+
+    assert time.monotonic() - started < 0.5
+    assert result == {"processed": 2, "failed": 1}
+    assert service.get("hanging-job")["state"] == "STALLED"
+    assert "同步超时" in str(service.get("hanging-job")["error"])
+    assert service.get("healthy-job")["state"] == "DOWNLOADING"
+    assert service.get("healthy-job")["progress"] == 0.5
+    await service.stop()
+    _reset()
+
+
+@pytest.mark.anyio
+async def test_successful_replacement_deletes_old_ani_media_but_retains_job_history(
+    tmp_path: Path, monkeypatch
+) -> None:
+    download, _, episode_id, _ = _prepare(tmp_path, monkeypatch)
+    old_path = download / "[ANi] 测试动画 - 01.mkv"
+    old_path.write_bytes(b"ani-video")
+    replacement = download / "[字幕组] 测试动画 - 01 [CHS].mkv"
+    replacement.write_bytes(b"fansub-video")
+    old_hash = "8" * 40
+    with session_scope() as session:
+        episode = session.get(Episode, episode_id)
+        assert episode is not None
+        media = MediaFile(
+            path=str(old_path), filename=old_path.name, file_size=old_path.stat().st_size,
+            mtime_ns=old_path.stat().st_mtime_ns, exists=True, ignored=False,
+            subject_id=episode.subject_id, parse_result='{"release_group":"ANi"}',
+            last_scanned_at=datetime.now(UTC),
+        )
+        session.add(media)
+        session.flush()
+        session.add(EpisodeFile(
+            episode_id=episode.id, media_file_id=media.id, mapping_source="DOWNLOAD_JOB",
+            confidence=1, is_primary=True,
+        ))
+        old_job = DownloadJob(
+            id="old-ani-job", magnet_uri="magnet:?xt=urn:btih:" + old_hash,
+            magnet_hash=old_hash, torrent_hash=old_hash, subject_id=episode.subject_id,
+            save_path=str(download), state="IMPORTED", progress=1,
+        )
+        session.add(old_job)
+        session.flush()
+        session.add(DownloadJobEpisode(job_id=old_job.id, episode_id=episode.id))
+        media_id = media.id
+    adapter = FakeQBittorrent([
+        {"name": replacement.name, "progress": 1, "priority": 1},
+    ])
+    service = DownloadService(adapter=adapter)
+
+    created = await service.create(
+        episode_id,
+        "9" * 40,
+        replacement_media_ids=[media_id],
+    )
+    result = await _terminal(service, str(created["id"]))
+    await asyncio.sleep(0.05)
+
+    assert result["state"] == "IMPORTED"
+    assert not old_path.exists()
+    assert replacement.exists()
+    assert {item["torrent_hash"] for item in adapter.deleted} == {old_hash}
+    assert all(item["delete_files"] is False for item in adapter.deleted)
+    with session_scope() as session:
+        assert session.get(DownloadJob, "old-ani-job") is not None
+        old_link = session.scalar(select(DownloadJobEpisode).where(
+            DownloadJobEpisode.job_id == "old-ani-job",
+            DownloadJobEpisode.episode_id == episode_id,
+        ))
+        assert old_link is not None
+        assert session.get(MediaFile, media_id) is None
+        mapping = session.scalar(select(EpisodeFile).where(EpisodeFile.episode_id == episode_id))
+        assert mapping is not None
+        current = session.get(MediaFile, mapping.media_file_id)
+        assert current is not None and current.filename == replacement.name
     await service.stop()
     _reset()
 
@@ -272,4 +416,44 @@ async def test_created_job_is_recovered_after_restart(tmp_path: Path, monkeypatc
     assert result["state"] == "IMPORTED"
     assert len(adapter.added) == 1
     await service.stop()
+    _reset()
+
+
+@pytest.mark.anyio
+async def test_phase4_wanted_to_search_download_import_ready_loop(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("AUTOANIME_SCHEDULER__AUTO_DOWNLOAD_ENABLED", "true")
+    download, _, episode_id, _ = _prepare(tmp_path, monkeypatch)
+    source = download / "[TestGroup] 测试动画 - 01 [1080p][HEVC].mkv"
+    source.write_bytes(b"phase-four-video")
+    with session_scope() as session:
+        episode = session.get(Episode, episode_id)
+        assert episode is not None
+        episode.air_date = date.today()
+        subject = session.get(Subject, episode.subject_id)
+        assert subject is not None
+        subject.collection_type = "DOING"
+
+    magnet = "3456789abcdef0123456789abcdef0123456789a"
+    adapter = FakeQBittorrent([{"name": source.name, "progress": 1, "priority": 1}])
+    downloads = DownloadService(adapter=adapter)
+    releases = ReleaseSearchService(FakeReleaseProvider(magnet), downloads, get_settings)
+    workflow = AutoDownloadScheduler(releases, DemandPlanner())
+    scheduler = SchedulerService()
+    scheduler.register("ReleaseSearch", lambda: 300, workflow.run_once)
+
+    run = await scheduler.run_task("ReleaseSearch")
+    jobs = downloads.list()
+    assert len(jobs) == 1
+    result = await _terminal(downloads, str(jobs[0]["id"]))
+
+    assert run["status"] == "SUCCESS"
+    assert run["result"]["downloaded"] == 1
+    assert result["state"] == "IMPORTED"
+    with session_scope() as session:
+        episode = session.get(Episode, episode_id)
+        task_run = session.get(TaskRun, str(run["id"]))
+        assert episode is not None and episode.local_status == "READY"
+        assert episode.successfully_imported_at is not None
+        assert task_run is not None and task_run.status == "SUCCESS"
+    await downloads.stop()
     _reset()

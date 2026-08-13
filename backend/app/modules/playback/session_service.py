@@ -106,6 +106,9 @@ class PlaybackSessionService:
     def continue_watching(self) -> list[dict[str, object]]:
         return self.state_service.continue_watching()
 
+    def active_media_file_ids(self) -> set[int]:
+        return {session.media_file_id for session in self._sessions.values()}
+
     def first_unwatched(self, subject_id: int) -> dict[str, object] | None:
         return self.state_service.first_unwatched(subject_id)
 
