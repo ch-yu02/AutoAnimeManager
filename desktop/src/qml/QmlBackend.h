@@ -1,7 +1,9 @@
 #pragma once
 
 #include <QJsonObject>
+#include <QHash>
 #include <QObject>
+#include <QSet>
 #include <QUrl>
 #include <QTimer>
 #include <QVariantList>
@@ -17,6 +19,7 @@ namespace autoanime {
 class QmlBackend final : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    Q_PROPERTY(QVariantMap activities READ activities NOTIFY activitiesChanged)
     Q_PROPERTY(QString error READ error NOTIFY errorChanged)
     Q_PROPERTY(QString notice READ notice NOTIFY noticeChanged)
     Q_PROPERTY(QVariantMap status READ status NOTIFY homeChanged)
@@ -40,6 +43,7 @@ public:
     explicit QmlBackend(QUrl baseUrl, QObject *parent = nullptr);
 
     bool busy() const noexcept { return m_pending > 0; }
+    QVariantMap activities() const;
     QString error() const { return m_error; }
     QString notice() const { return m_notice; }
     QVariantMap status() const { return m_status; }
@@ -75,7 +79,7 @@ public:
     Q_INVOKABLE void restoreCleanup(const QString &recordId);
     Q_INVOKABLE void permanentlyDeleteCleanup(const QString &recordId);
     Q_INVOKABLE void loadDownloads();
-    Q_INVOKABLE void setDownloadPolling(bool enabled);
+    Q_INVOKABLE void setDownloadPolling(const QString &owner, bool enabled);
     Q_INVOKABLE void addDownload(qint64 episodeId, const QString &magnet);
     Q_INVOKABLE void pauseDownload(const QString &jobId);
     Q_INVOKABLE void resumeDownload(const QString &jobId);
@@ -114,6 +118,7 @@ public:
 
 signals:
     void busyChanged();
+    void activitiesChanged();
     void errorChanged();
     void noticeChanged();
     void homeChanged();
@@ -129,8 +134,18 @@ signals:
 
 private:
     using Handler = std::function<void(const QVariant &)>;
+    using Completion = std::function<void()>;
 
-    void send(const QByteArray &method, const QString &path, const QJsonObject &body, Handler handler);
+    void send(
+        const QByteArray &method,
+        const QString &path,
+        const QJsonObject &body,
+        Handler handler,
+        const QString &activity = {},
+        Completion completion = {}
+    );
+    void beginActivity(const QString &activity);
+    void endActivity(const QString &activity);
     QUrl url(const QString &path) const;
     void setError(const QString &message);
     void setNotice(const QString &message);
@@ -141,6 +156,8 @@ private:
     QTimer m_schedulerTimer;
     QUrl m_baseUrl;
     int m_pending{0};
+    QHash<QString, int> m_activityPending;
+    QSet<QString> m_downloadPollingOwners;
     QString m_error;
     QString m_notice;
     QVariantMap m_status;

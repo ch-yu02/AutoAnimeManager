@@ -27,6 +27,7 @@ Page {
         const s = value % 60
         return h > 0 ? h + ":" + String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0") : m + ":" + String(s).padStart(2, "0")
     }
+    function revealControls() { controlsVisible = true; hideTimer.restart() }
     function playAdjacent(offset) {
         const index = currentIndex + offset
         if (index >= 0 && index < episodeModel.length && episodeModel[index].local_status === "READY")
@@ -37,45 +38,58 @@ Page {
         else ApplicationWindow.window.showFullScreen()
     }
 
-    background: Rectangle { color: "black" }
+    background: Rectangle { color: Theme.screenBlack }
     MpvVideoItem { anchors.fill: parent }
 
     MouseArea {
         anchors.fill: parent
         hoverEnabled: true
         acceptedButtons: Qt.LeftButton
-        onPositionChanged: { root.controlsVisible = true; hideTimer.restart() }
-        onClicked: player.togglePause()
+        onPositionChanged: root.revealControls()
+        onClicked: { player.togglePause(); root.revealControls() }
         onDoubleClicked: root.toggleFullscreen()
     }
 
-    Rectangle {
-        anchors.fill: parent
-        visible: player.loading
-        color: "#66000000"
-        BusyIndicator { anchors.centerIn: parent; running: true }
-    }
+    Rectangle { anchors.fill: parent; visible: player.loading; color: Qt.rgba(0, 0, 0, 0.45); BusyIndicator { anchors.centerIn: parent; running: true } }
 
     Rectangle {
         anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
-        height: 70
-        visible: root.controlsVisible
-        gradient: Gradient { GradientStop { position: 0; color: "#bb000000" } GradientStop { position: 1; color: "transparent" } }
+        height: Metrics.pageHeaderHeight
+        visible: root.controlsVisible || player.paused
+        gradient: Gradient { GradientStop { position: 0; color: Qt.rgba(0, 0, 0, 0.82) } GradientStop { position: 1; color: "transparent" } }
         RowLayout {
-            anchors.fill: parent; anchors.leftMargin: 18; anchors.rightMargin: 18
-            Button { text: "‹"; flat: true; font.pixelSize: 24; onClicked: { player.stop(); root.back() } }
-            Label { Layout.fillWidth: true; text: root.subjectTitle; color: "white"; font.pixelSize: 17; elide: Text.ElideRight }
-            Label { text: "HW: " + (player.hwdec || "software") + "  掉帧: " + player.droppedFrames; color: "#bdc6d2"; font.pixelSize: 12 }
+            anchors.fill: parent
+            anchors.leftMargin: Metrics.space4
+            anchors.rightMargin: Metrics.space4
+            IconButton { iconName: "arrow-left"; iconSize: 24; tooltip: "返回（Esc）"; onClicked: { player.stop(); root.back() } }
+            Label { Layout.fillWidth: true; text: root.subjectTitle; color: Theme.textPrimary; font.pixelSize: Typography.itemTitle; font.weight: Typography.semibold; elide: Text.ElideRight }
+            IconButton { iconName: "more-horizontal"; tooltip: "播放信息"; onClicked: infoMenu.open(); Menu { id: infoMenu; MenuItem { text: "硬件解码：" + (player.hwdec || "software"); enabled: false } MenuItem { text: "掉帧：" + player.droppedFrames; enabled: false } } }
         }
+        Behavior on opacity { NumberAnimation { duration: 160 } }
+    }
+
+    AppButton {
+        anchors.centerIn: parent
+        visible: player.paused && !player.loading
+        width: 64
+        height: 64
+        text: ""
+        iconName: "play"
+        variant: "primary"
+        onClicked: { player.togglePause(); root.revealControls() }
     }
 
     Rectangle {
         anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
-        height: 112
-        visible: root.controlsVisible
-        gradient: Gradient { GradientStop { position: 0; color: "transparent" } GradientStop { position: 1; color: "#dd000000" } }
+        height: 120
+        visible: root.controlsVisible || player.paused
+        gradient: Gradient { GradientStop { position: 0; color: "transparent" } GradientStop { position: 1; color: Qt.rgba(0, 0, 0, 0.88) } }
         ColumnLayout {
-            anchors.fill: parent; anchors.margins: 14; spacing: 4
+            anchors.fill: parent
+            anchors.leftMargin: Metrics.space4
+            anchors.rightMargin: Metrics.space4
+            anchors.bottomMargin: Metrics.space3
+            spacing: Metrics.space1
             Slider {
                 id: timeline
                 Layout.fillWidth: true
@@ -84,41 +98,47 @@ Page {
                 onPressedChanged: {
                     root.seeking = pressed
                     if (!pressed) player.seek(value)
+                    root.revealControls()
                 }
             }
             RowLayout {
                 Layout.fillWidth: true
-                Button { text: "◀"; flat: true; enabled: root.currentIndex > 0; onClicked: root.playAdjacent(-1) }
-                Button { text: player.paused ? "▶" : "Ⅱ"; flat: true; font.pixelSize: 20; onClicked: player.togglePause() }
-                Button { text: "▶|"; flat: true; enabled: root.currentIndex >= 0 && root.currentIndex + 1 < root.episodeModel.length; onClicked: root.playAdjacent(1) }
-                Label { text: root.formatTime(root.seeking ? timeline.value : player.position) + " / " + root.formatTime(player.duration); color: "white" }
+                spacing: Metrics.space1
+                IconButton { iconName: "skip-back"; iconSize: 24; tooltip: "上一集"; enabled: root.currentIndex > 0; onClicked: root.playAdjacent(-1) }
+                IconButton { iconName: player.paused ? "play" : "pause"; iconSize: 24; tooltip: player.paused ? "播放（Space）" : "暂停（Space）"; onClicked: { player.togglePause(); root.revealControls() } }
+                IconButton { iconName: "skip-forward"; iconSize: 24; tooltip: "下一集"; enabled: root.currentIndex >= 0 && root.currentIndex + 1 < root.episodeModel.length; onClicked: root.playAdjacent(1) }
+                Label { text: root.formatTime(root.seeking ? timeline.value : player.position) + " / " + root.formatTime(player.duration); color: Theme.textPrimary; font.family: Typography.monoFamily; font.pixelSize: Typography.meta }
                 Item { Layout.fillWidth: true }
-                Button { text: player.muted ? "静音" : "音量"; flat: true; onClicked: player.toggleMute() }
-                Slider { Layout.preferredWidth: 110; from: 0; to: 100; value: player.volume; onMoved: player.setVolume(value) }
-                Button { text: player.speed.toFixed(2) + "×"; flat: true; onClicked: speedMenu.open(); Menu { id: speedMenu; Repeater { model: [0.5, 0.75, 1, 1.25, 1.5, 2]; delegate: MenuItem { required property var modelData; text: modelData + "×"; onTriggered: player.setSpeed(modelData) } } } }
-                Button { text: "音轨"; flat: true; onClicked: audioMenu.open(); Menu { id: audioMenu; Repeater { model: player.audioTracks; delegate: MenuItem { required property var modelData; text: (modelData.selected ? "✓ " : "") + modelData.label; onTriggered: player.selectAudioTrack(modelData.id) } } } }
-                Button { text: "字幕"; flat: true; onClicked: subtitleMenu.open(); Menu { id: subtitleMenu; MenuItem { text: "关闭字幕"; onTriggered: player.selectSubtitleTrack(-1) } Repeater { model: player.subtitleTracks; delegate: MenuItem { required property var modelData; text: (modelData.selected ? "✓ " : "") + modelData.label; onTriggered: player.selectSubtitleTrack(modelData.id) } } MenuSeparator {} MenuItem { text: "加载外挂字幕…"; onTriggered: subtitleDialog.open() } } }
-                Button { text: "⛶"; flat: true; font.pixelSize: 20; onClicked: root.toggleFullscreen() }
+                IconButton { iconName: player.muted ? "volume-x" : "volume-2"; tooltip: player.muted ? "取消静音（M）" : "静音（M）"; onClicked: player.toggleMute() }
+                Slider { Layout.preferredWidth: 112; from: 0; to: 100; value: player.volume; onMoved: player.setVolume(value) }
+                AppButton { text: player.speed.toFixed(2) + "×"; variant: "ghost"; onClicked: speedMenu.open(); Menu { id: speedMenu; Repeater { model: [0.5, 0.75, 1, 1.25, 1.5, 2]; delegate: MenuItem { required property var modelData; text: modelData + "×"; onTriggered: player.setSpeed(modelData) } } } }
+                IconButton { iconName: "audio-lines"; tooltip: "音轨"; onClicked: audioMenu.open(); Menu { id: audioMenu; Repeater { model: player.audioTracks; delegate: MenuItem { required property var modelData; text: (modelData.selected ? "✓ " : "") + modelData.label; onTriggered: player.selectAudioTrack(modelData.id) } } } }
+                IconButton { iconName: "captions"; tooltip: "字幕"; onClicked: subtitleMenu.open(); Menu { id: subtitleMenu; MenuItem { text: "关闭字幕"; onTriggered: player.selectSubtitleTrack(-1) } Repeater { model: player.subtitleTracks; delegate: MenuItem { required property var modelData; text: (modelData.selected ? "✓ " : "") + modelData.label; onTriggered: player.selectSubtitleTrack(modelData.id) } } MenuSeparator {} MenuItem { text: "加载外挂字幕…"; onTriggered: subtitleDialog.open() } } }
+                IconButton { iconName: "maximize"; iconSize: 24; tooltip: "全屏（F）"; onClicked: root.toggleFullscreen() }
             }
         }
+        Behavior on opacity { NumberAnimation { duration: 160 } }
     }
 
     Rectangle {
         visible: player.error.length > 0
         anchors.centerIn: parent
-        width: Math.min(errorLabel.implicitWidth + 40, parent.width - 80)
-        height: errorLabel.implicitHeight + 30
-        radius: 8; color: "#bb782d3d"
-        Label { id: errorLabel; anchors.centerIn: parent; text: player.error; color: "white"; wrapMode: Text.Wrap }
+        width: Math.min(errorLabel.implicitWidth + Metrics.space12, parent.width - Metrics.space16)
+        height: errorLabel.implicitHeight + Metrics.space8
+        radius: Metrics.radiusM
+        color: Theme.surfaceRaised
+        border.width: 1
+        border.color: Theme.danger
+        Label { id: errorLabel; anchors.centerIn: parent; text: player.error; color: Theme.textPrimary; wrapMode: Text.Wrap }
     }
 
-    Timer { id: hideTimer; interval: 2500; onTriggered: root.controlsVisible = false }
+    Timer { id: hideTimer; interval: 2500; onTriggered: if (!player.paused) root.controlsVisible = false }
     FileDialog { id: subtitleDialog; title: "选择字幕"; nameFilters: ["字幕文件 (*.ass *.ssa *.srt *.vtt *.sup)", "所有文件 (*)"]; onAccepted: player.addSubtitle(selectedFile) }
-    Shortcut { sequence: "Space"; onActivated: player.togglePause() }
-    Shortcut { sequence: "Left"; onActivated: player.seekRelative(-5) }
-    Shortcut { sequence: "Right"; onActivated: player.seekRelative(5) }
-    Shortcut { sequence: "Up"; onActivated: player.setVolume(Math.min(100, player.volume + 5)) }
-    Shortcut { sequence: "Down"; onActivated: player.setVolume(Math.max(0, player.volume - 5)) }
+    Shortcut { sequence: "Space"; onActivated: { player.togglePause(); root.revealControls() } }
+    Shortcut { sequence: "Left"; onActivated: { player.seekRelative(-5); root.revealControls() } }
+    Shortcut { sequence: "Right"; onActivated: { player.seekRelative(5); root.revealControls() } }
+    Shortcut { sequence: "Up"; onActivated: { player.setVolume(Math.min(100, player.volume + 5)); root.revealControls() } }
+    Shortcut { sequence: "Down"; onActivated: { player.setVolume(Math.max(0, player.volume - 5)); root.revealControls() } }
     Shortcut { sequence: "M"; onActivated: player.toggleMute() }
     Shortcut { sequence: "F"; onActivated: root.toggleFullscreen() }
     Shortcut { sequence: "Escape"; onActivated: { if (ApplicationWindow.window.visibility === Window.FullScreen) ApplicationWindow.window.showNormal(); else { player.stop(); root.back() } } }
@@ -126,9 +146,7 @@ Page {
 
     Connections {
         target: player
-        function onPositionChanged() {
-            if (!timeline.pressed) timeline.value = player.position
-        }
+        function onPositionChanged() { if (!timeline.pressed) timeline.value = player.position }
         function onPlaybackEnded(episodeId, nextEpisodeId) {
             const settingsPlayer = backend.settings.player || {}
             if (settingsPlayer.auto_play_next && nextEpisodeId > 0) player.play(nextEpisodeId, false)

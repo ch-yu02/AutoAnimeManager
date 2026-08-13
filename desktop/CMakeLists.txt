@@ -50,8 +50,16 @@ qt_add_executable(autoanime-desktop
     src/player/MpvVideoItem.h
     src/qml/QmlBackend.cpp
     src/qml/QmlBackend.h
+    src/qml/DesktopPreferences.cpp
+    src/qml/DesktopPreferences.h
     src/qml/QmlPlayer.cpp
     src/qml/QmlPlayer.h
+)
+set_source_files_properties(
+    qml/theme/Theme.qml
+    qml/theme/Typography.qml
+    qml/theme/Metrics.qml
+    PROPERTIES QT_QML_SINGLETON_TYPE TRUE
 )
 qt_add_qml_module(autoanime-desktop
     URI AutoAnime
@@ -66,7 +74,48 @@ qt_add_qml_module(autoanime-desktop
         qml/DownloadsPage.qml
         qml/QuarantinePage.qml
         qml/SettingsPage.qml
-        qml/MediaCard.qml
+        qml/theme/Theme.qml
+        qml/theme/Typography.qml
+        qml/theme/Metrics.qml
+        qml/components/AppButton.qml
+        qml/components/AppProgressBar.qml
+        qml/components/IconButton.qml
+        qml/components/RoundedImage.qml
+        qml/components/SectionHeader.qml
+        qml/components/MediaCard.qml
+        qml/components/EpisodeRow.qml
+        qml/components/StatusBadge.qml
+        qml/components/EmptyState.qml
+        qml/components/SettingsSection.qml
+        qml/components/AppTab.qml
+    RESOURCES
+        qml/icons/LUCIDE_LICENSE.txt
+        qml/icons/house.svg
+        qml/icons/library-big.svg
+        qml/icons/folder-search.svg
+        qml/icons/download.svg
+        qml/icons/archive-restore.svg
+        qml/icons/settings.svg
+        qml/icons/play.svg
+        qml/icons/pause.svg
+        qml/icons/skip-back.svg
+        qml/icons/skip-forward.svg
+        qml/icons/volume-2.svg
+        qml/icons/volume-x.svg
+        qml/icons/captions.svg
+        qml/icons/audio-lines.svg
+        qml/icons/maximize.svg
+        qml/icons/arrow-left.svg
+        qml/icons/refresh-cw.svg
+        qml/icons/scan-search.svg
+        qml/icons/search.svg
+        qml/icons/more-horizontal.svg
+        qml/icons/image.svg
+        qml/icons/inbox.svg
+        qml/icons/x.svg
+        qml/icons/trash-2.svg
+        qml/icons/shield-alert.svg
+        qml/icons/rotate-ccw.svg
 )
 target_include_directories(autoanime-desktop PRIVATE src)
 target_link_libraries(autoanime-desktop
@@ -121,4 +170,20 @@ if(BUILD_TESTING)
     else()
         add_test(NAME autoanime-sleep-inhibitor-tests COMMAND autoanime-sleep-inhibitor-tests)
     endif()
+
+    add_executable(autoanime-qml-backend-activity-tests
+        tests/test_qml_backend_activity.cpp
+        src/qml/QmlBackend.cpp
+        src/qml/QmlBackend.h
+    )
+    target_include_directories(autoanime-qml-backend-activity-tests PRIVATE src)
+    target_link_libraries(
+        autoanime-qml-backend-activity-tests
+        PRIVATE Qt6::Core Qt6::Network Qt6::Test
+    )
+    target_compile_options(autoanime-qml-backend-activity-tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(
+        NAME autoanime-qml-backend-activity-tests
+        COMMAND autoanime-qml-backend-activity-tests
+    )
 endif()

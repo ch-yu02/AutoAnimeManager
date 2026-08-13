@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Controls.Material
+import AutoAnime 1.0
 
 ApplicationWindow {
     id: window
@@ -11,47 +12,45 @@ ApplicationWindow {
     minimumHeight: 600
     visible: true
     title: "AutoAnime"
-    color: "#0b1018"
-    Material.theme: Material.Dark
-    Material.accent: accentColor
-    Material.primary: "#1a2938"
-    Material.background: "#0b1018"
-    Material.foreground: textColor
+    color: Theme.canvas
+    font.family: Typography.family
+    Material.theme: Theme.isLight ? Material.Light : Material.Dark
+    Material.accent: Theme.accent
+    Material.primary: Theme.surfaceRaised
+    Material.background: Theme.canvas
+    Material.foreground: Theme.textPrimary
 
-    palette.window: "#0b1018"
-    palette.windowText: textColor
-    palette.base: "#111a25"
-    palette.alternateBase: "#172231"
-    palette.text: textColor
-    palette.button: "#243244"
-    palette.buttonText: textColor
-    palette.brightText: "#ffffff"
-    palette.highlight: accentColor
-    palette.highlightedText: "#07130f"
-    palette.placeholderText: "#8190a3"
-    palette.toolTipBase: "#243244"
-    palette.toolTipText: "#ffffff"
+    palette.window: Theme.canvas
+    palette.windowText: Theme.textPrimary
+    palette.base: Theme.controlInset
+    palette.alternateBase: Theme.surface
+    palette.text: Theme.textPrimary
+    palette.button: Theme.surface
+    palette.buttonText: Theme.textPrimary
+    palette.brightText: Theme.textPrimary
+    palette.highlight: Theme.accent
+    palette.highlightedText: Theme.accentInk
+    palette.placeholderText: Theme.textDisabled
+    palette.toolTipBase: Theme.surfaceRaised
+    palette.toolTipText: Theme.textPrimary
 
-    property color panelColor: "#121a25"
-    property color panelHover: "#1a2635"
-    property color textColor: "#f2f5f8"
-    property color mutedColor: "#93a1b2"
-    property color accentColor: "#72d5b4"
     property bool playerOpen: stack.currentItem && stack.currentItem.objectName === "playerPage"
+    property string currentRoot: "home"
 
     function leavePlayer() { if (playerOpen) player.stop() }
-    function openRoot(component) {
+    function openRoot(component, name) {
         leavePlayer()
+        currentRoot = name
         stack.clear()
         stack.push(component)
     }
-    function openHome() { openRoot(homeComponent) }
-    function openSubjects() { openRoot(subjectsComponent) }
+    function openHome() { openRoot(homeComponent, "home") }
+    function openSubjects() { openRoot(subjectsComponent, "subjects") }
     function openSubject(id) { leavePlayer(); stack.push(detailComponent, { subjectId: id }) }
-    function openLibrary() { openRoot(libraryComponent) }
-    function openDownloads() { openRoot(downloadsComponent) }
-    function openQuarantine() { openRoot(quarantineComponent) }
-    function openSettings() { openRoot(settingsComponent) }
+    function openLibrary() { openRoot(libraryComponent, "library") }
+    function openDownloads() { openRoot(downloadsComponent, "downloads") }
+    function openQuarantine() { openRoot(quarantineComponent, "quarantine") }
+    function openSettings() { openRoot(settingsComponent, "settings") }
     function openPlayer(episodeId, fromStart, episodes, title) {
         stack.push(playerComponent, {
             requestedEpisodeId: episodeId,
@@ -73,56 +72,60 @@ ApplicationWindow {
         spacing: 0
 
         Rectangle {
-            Layout.preferredWidth: window.playerOpen ? 0 : 210
+            Layout.preferredWidth: window.playerOpen ? 0 : Metrics.sidebarWidth
             Layout.fillHeight: true
-            color: "#0e151f"
+            color: Theme.canvas
             visible: !window.playerOpen
             clip: true
+            border.width: 0
+
+            Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: Theme.borderSoft }
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 18
-                spacing: 8
+                anchors.margins: Metrics.space4
+                spacing: Metrics.space2
 
                 Label {
                     text: "AutoAnime"
-                    color: window.textColor
-                    font.pixelSize: 24
-                    font.weight: Font.DemiBold
-                    Layout.bottomMargin: 22
+                    color: Theme.textPrimary
+                    font.family: Typography.family
+                    font.pixelSize: Typography.sectionTitle
+                    font.weight: Typography.bold
+                    Layout.leftMargin: Metrics.space2
+                    Layout.topMargin: Metrics.space2
+                    Layout.bottomMargin: Metrics.space6
                 }
-                Repeater {
-                    model: [
-                        { label: "首页", icon: "⌂", action: window.openHome },
-                        { label: "条目", icon: "▦", action: window.openSubjects },
-                        { label: "媒体库", icon: "◫", action: window.openLibrary },
-                        { label: "下载", icon: "⇩", action: window.openDownloads },
-                        { label: "隔离区", icon: "◇", action: window.openQuarantine },
-                        { label: "设置", icon: "⚙", action: window.openSettings }
-                    ]
-                    delegate: Button {
-                        required property var modelData
-                        Layout.fillWidth: true
-                        text: modelData.icon + "   " + modelData.label
-                        flat: true
-                        font.pixelSize: 15
-                        onClicked: modelData.action()
-                        contentItem: Label {
-                            text: parent.text
-                            color: parent.hovered ? window.accentColor : window.textColor
-                            verticalAlignment: Text.AlignVCenter
-                        }
-                        background: Rectangle {
-                            color: parent.hovered ? window.panelHover : "transparent"
-                            radius: 8
-                        }
-                    }
+                Label {
+                    text: "观看"
+                    color: Theme.textTertiary
+                    font.pixelSize: Typography.micro
+                    font.weight: Typography.medium
+                    Layout.leftMargin: Metrics.space3
+                    Layout.bottomMargin: Metrics.space1
                 }
+                AppButton { Layout.fillWidth: true; text: "首页"; iconName: "house"; variant: "ghost"; selected: window.currentRoot === "home"; onClicked: window.openHome() }
+                AppButton { Layout.fillWidth: true; text: "条目"; iconName: "library-big"; variant: "ghost"; selected: window.currentRoot === "subjects"; onClicked: window.openSubjects() }
+                Label {
+                    text: "管理"
+                    color: Theme.textTertiary
+                    font.pixelSize: Typography.micro
+                    font.weight: Typography.medium
+                    Layout.leftMargin: Metrics.space3
+                    Layout.topMargin: Metrics.space6
+                    Layout.bottomMargin: Metrics.space1
+                }
+                AppButton { Layout.fillWidth: true; text: "媒体库"; iconName: "folder-search"; variant: "ghost"; selected: window.currentRoot === "library"; onClicked: window.openLibrary() }
+                AppButton { Layout.fillWidth: true; text: "下载"; iconName: "download"; variant: "ghost"; selected: window.currentRoot === "downloads"; onClicked: window.openDownloads() }
+                AppButton { Layout.fillWidth: true; text: "隔离区"; iconName: "archive-restore"; variant: "ghost"; selected: window.currentRoot === "quarantine"; onClicked: window.openQuarantine() }
                 Item { Layout.fillHeight: true }
+                AppButton { Layout.fillWidth: true; text: "设置"; iconName: "settings"; variant: "ghost"; selected: window.currentRoot === "settings"; onClicked: window.openSettings() }
                 Label {
                     text: backend.status.version ? "Core " + backend.status.version : "本地原生客户端"
-                    color: window.mutedColor
-                    font.pixelSize: 12
+                    color: Theme.textDisabled
+                    font.pixelSize: Typography.micro
+                    Layout.leftMargin: Metrics.space3
+                    Layout.bottomMargin: Metrics.space2
                 }
             }
         }
@@ -133,62 +136,48 @@ ApplicationWindow {
             Layout.fillHeight: true
             initialItem: homeComponent
             clip: true
+            pushEnter: Transition { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 220; easing.type: Easing.OutCubic } }
+            pushExit: Transition { NumberAnimation { property: "opacity"; from: 1; to: 0.84; duration: 120 } }
+            popEnter: Transition { NumberAnimation { property: "opacity"; from: 0.84; to: 1; duration: 180; easing.type: Easing.OutCubic } }
+            popExit: Transition { NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 120 } }
         }
     }
 
     Rectangle {
-        visible: backend.error.length > 0
-        anchors.horizontalCenter: parent.horizontalCenter
+        id: toast
+        visible: backend.error.length > 0 || backend.notice.length > 0
+        anchors.right: parent.right
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: 24
-        width: Math.min(errorText.implicitWidth + 76, parent.width - 48)
-        height: Math.max(48, errorText.implicitHeight + 24)
-        radius: 8
-        color: "#822f3f"
+        anchors.margins: Metrics.space6
+        width: Math.min(440, parent.width - Metrics.space12)
+        implicitHeight: toastContent.implicitHeight + Metrics.space4 * 2
+        radius: Metrics.radiusM
+        color: Theme.surfaceRaised
+        border.width: 1
+        border.color: Theme.borderStrong
         z: 100
         RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: 18
-            anchors.rightMargin: 8
-            Label { id: errorText; Layout.fillWidth: true; text: backend.error; color: "white"; wrapMode: Text.Wrap }
-            Button {
-                text: "×"
-                flat: true
-                onClicked: backend.dismissError()
-                contentItem: Label { text: parent.text; color: "white"; font.pixelSize: 20; horizontalAlignment: Text.AlignHCenter }
+            id: toastContent
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.leftMargin: Metrics.space4
+            anchors.rightMargin: Metrics.space2
+            spacing: Metrics.space3
+            Rectangle { Layout.preferredWidth: 3; Layout.preferredHeight: 28; radius: 2; color: backend.error.length > 0 ? Theme.danger : Theme.success }
+            Label {
+                Layout.fillWidth: true
+                text: backend.error.length > 0 ? backend.error : backend.notice
+                color: Theme.textPrimary
+                font.pixelSize: Typography.body
+                wrapMode: Text.Wrap
             }
+            IconButton { iconName: "x"; tooltip: "关闭"; onClicked: backend.error.length > 0 ? backend.dismissError() : backend.dismissNotice() }
         }
+        Behavior on opacity { NumberAnimation { duration: 160 } }
     }
 
-    Rectangle {
-        visible: backend.notice.length > 0 && backend.error.length === 0
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: 24
-        width: Math.min(noticeText.implicitWidth + 76, parent.width - 48)
-        height: Math.max(48, noticeText.implicitHeight + 24)
-        radius: 8
-        color: "#245f52"
-        z: 99
-        RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: 18
-            anchors.rightMargin: 8
-            Label { id: noticeText; Layout.fillWidth: true; text: backend.notice; color: "white"; wrapMode: Text.Wrap }
-            Button {
-                text: "×"
-                flat: true
-                onClicked: backend.dismissNotice()
-                contentItem: Label { text: parent.text; color: "white"; font.pixelSize: 20; horizontalAlignment: Text.AlignHCenter }
-            }
-        }
-    }
-
-    Timer {
-        id: noticeTimer
-        interval: 4000
-        onTriggered: backend.dismissNotice()
-    }
+    Timer { id: noticeTimer; interval: 4000; onTriggered: backend.dismissNotice() }
     Connections {
         target: backend
         function onNoticeChanged() {
@@ -196,8 +185,12 @@ ApplicationWindow {
             else noticeTimer.stop()
         }
     }
+    Connections {
+        target: preferences
+        function onThemeIdChanged() { Theme.themeId = preferences.themeId }
+    }
 
-    Component { id: homeComponent; HomePage { onOpenSubject: id => window.openSubject(id); onPlayEpisode: (id, title) => window.openPlayer(id, false, [], title) } }
+    Component { id: homeComponent; HomePage { onOpenSubject: id => window.openSubject(id); onPlayEpisode: (id, title) => window.openPlayer(id, false, [], title); onOpenLibrary: window.openLibrary() } }
     Component { id: subjectsComponent; SubjectsPage { onOpenSubject: id => window.openSubject(id) } }
     Component { id: detailComponent; SubjectDetailPage { onBack: stack.pop(); onPlayEpisode: (id, fromStart, episodes, title) => window.openPlayer(id, fromStart, episodes, title) } }
     Component { id: playerComponent; PlayerPage { onBack: stack.pop() } }
@@ -207,6 +200,7 @@ ApplicationWindow {
     Component { id: settingsComponent; SettingsPage {} }
 
     Component.onCompleted: {
+        Theme.themeId = preferences.themeId
         backend.loadSettings()
         if (startupEpisodeId > 0) openPlayer(startupEpisodeId, false, [], "播放性能验收")
     }

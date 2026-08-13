@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import AutoAnime 1.0
 
 Page {
     id: root
@@ -9,19 +10,34 @@ Page {
     property int selectedEpisodeId: -1
     property string selectedSubjectName: ""
     property var currentFiles: backend.review[category] || []
-    background: Rectangle { color: "#0b1018" }
+    property bool scanRunning: backend.scanStatus.status === "RUNNING"
+    property bool scanStarting: backend.activities.libraryScanStarting || false
+    property bool rematching: backend.activities.libraryRematching || false
+    property bool libraryLoading: backend.activities.libraryLoading || false
+    background: Rectangle { color: Theme.canvas }
 
     header: ColumnLayout {
-        anchors.leftMargin: 30; anchors.rightMargin: 30; spacing: 12
+        anchors.leftMargin: Metrics.pageMargin(root.width); anchors.rightMargin: Metrics.pageMargin(root.width); spacing: Metrics.space2
         RowLayout {
             Layout.fillWidth: true
             ColumnLayout {
-                Label { text: "媒体库审核"; color: "#f2f5f8"; font.pixelSize: 30; font.weight: Font.DemiBold }
-                Label { text: "扫描状态：" + (backend.scanStatus.status || "未知"); color: "#93a1b2" }
+                Label { text: "媒体库审核"; color: Theme.textPrimary; font.pixelSize: Typography.pageTitle; font.weight: Typography.semibold }
+                StatusBadge { text: "扫描 · " + (backend.scanStatus.status || "未知"); status: backend.scanStatus.status || "" }
             }
             Item { Layout.fillWidth: true }
-            Button { text: "重新匹配待审核"; enabled: !backend.busy; onClicked: backend.rematchReview() }
-            Button { text: "扫描媒体库"; highlighted: true; enabled: !backend.busy; onClicked: backend.startLibraryScan() }
+            AppButton {
+                text: root.rematching ? "正在重新匹配…" : "重新匹配待审核"
+                iconName: "refresh-cw"
+                enabled: !root.rematching && !root.scanStarting && !root.scanRunning && !root.libraryLoading
+                onClicked: backend.rematchReview()
+            }
+            AppButton {
+                text: root.scanStarting || root.scanRunning ? "正在扫描…" : "扫描媒体库"
+                iconName: "scan-search"
+                variant: "primary"
+                enabled: !root.scanStarting && !root.rematching && !root.scanRunning && !root.libraryLoading
+                onClicked: backend.startLibraryScan()
+            }
         }
         RowLayout {
             Repeater {
@@ -30,18 +46,17 @@ Page {
                     { key: "manually_linked", label: "人工关联" }, { key: "duplicates", label: "重复" },
                     { key: "missing", label: "缺失" }, { key: "ignored", label: "已忽略" }
                 ]
-                delegate: Button {
+                delegate: AppTab {
                     required property var modelData
                     text: modelData.label + " (" + ((backend.review[modelData.key] || []).length) + ")"
-                    flat: root.category !== modelData.key
-                    highlighted: root.category === modelData.key
+                    selected: root.category === modelData.key
                     onClicked: root.category = modelData.key
                 }
             }
         }
         RowLayout {
             visible: root.category === "needs_review"
-            Label { text: "人工关联："; color: "#c8d0da" }
+            Label { text: "人工关联"; color: Theme.textSecondary; font.pixelSize: Typography.label; font.weight: Typography.medium }
             TextField {
                 id: subjectSearch
                 Layout.preferredWidth: 260
@@ -98,36 +113,36 @@ Page {
 
     ScrollView {
         anchors.fill: parent
-        anchors.margins: 28
+        anchors.leftMargin: Metrics.pageMargin(root.width); anchors.rightMargin: Metrics.pageMargin(root.width); anchors.topMargin: Metrics.space6
         contentWidth: availableWidth
         ColumnLayout {
             width: parent.width
-            spacing: 10
+            spacing: Metrics.space2
             Repeater {
                 model: root.currentFiles
                 delegate: Rectangle {
                     required property var modelData
                     Layout.fillWidth: true
                     Layout.preferredHeight: 96
-                    radius: 8; color: "#121a25"
+                    radius: Metrics.radiusS; color: fileHover.hovered ? Theme.surfaceHover : Theme.surface
+                    border.width: 1; border.color: fileHover.hovered ? Theme.border : Theme.borderSoft
+                    HoverHandler { id: fileHover }
                     RowLayout {
-                        anchors.fill: parent; anchors.margins: 14; spacing: 12
+                        anchors.fill: parent; anchors.margins: Metrics.space4; spacing: Metrics.space3
                         ColumnLayout {
-                            Layout.fillWidth: true; spacing: 4
-                            Label { Layout.fillWidth: true; text: modelData.filename; color: "#f2f5f8"; font.weight: Font.DemiBold; elide: Text.ElideMiddle }
-                            Label { Layout.fillWidth: true; text: modelData.subject ? modelData.subject.name : "未关联条目"; color: "#72d5b4"; elide: Text.ElideRight }
-                            Label { Layout.fillWidth: true; text: (modelData.review_reason || modelData.subject_mapping_source || "-") + "  ·  " + modelData.path; color: "#93a1b2"; font.pixelSize: 12; elide: Text.ElideMiddle }
+                            Layout.fillWidth: true; spacing: Metrics.space1
+                            Label { Layout.fillWidth: true; text: modelData.filename; color: Theme.textPrimary; font.weight: Typography.semibold; elide: Text.ElideMiddle }
+                            Label { Layout.fillWidth: true; text: modelData.subject ? modelData.subject.name : "未关联条目"; color: modelData.subject ? Theme.accent : Theme.warning; elide: Text.ElideRight }
+                            Label { Layout.fillWidth: true; text: (modelData.review_reason || modelData.subject_mapping_source || "-") + "  ·  " + modelData.path; color: Theme.textTertiary; font.pixelSize: Typography.meta; elide: Text.ElideMiddle }
                         }
-                        Button { visible: root.category === "needs_review"; text: "应用关联"; enabled: root.selectedSubjectId > 0 && root.selectedEpisodeId > 0; onClicked: backend.matchFile(modelData.id, root.selectedSubjectId, [root.selectedEpisodeId]) }
-                        Button { visible: root.category === "needs_review"; text: "重新解析"; flat: true; onClicked: backend.reparseFile(modelData.id) }
-                        Button { visible: root.category === "manually_linked"; text: "解除关联"; onClicked: backend.unlinkFile(modelData.id) }
-                        Button { text: root.category === "ignored" ? "恢复" : "忽略"; flat: true; onClicked: backend.ignoreFile(modelData.id, root.category !== "ignored") }
+                        AppButton { visible: root.category === "needs_review"; text: "应用关联"; variant: "primary"; enabled: root.selectedSubjectId > 0 && root.selectedEpisodeId > 0 && !(backend.activities.libraryMutating || false); onClicked: backend.matchFile(modelData.id, root.selectedSubjectId, [root.selectedEpisodeId]) }
+                        IconButton { iconName: "more-horizontal"; tooltip: "更多操作"; enabled: !(backend.activities.libraryMutating || false); onClicked: fileMenu.open(); Menu { id: fileMenu; MenuItem { visible: root.category === "needs_review"; text: "重新解析"; onTriggered: backend.reparseFile(modelData.id) } MenuItem { visible: root.category === "manually_linked"; text: "解除关联"; onTriggered: backend.unlinkFile(modelData.id) } MenuItem { text: root.category === "ignored" ? "恢复" : "忽略"; onTriggered: backend.ignoreFile(modelData.id, root.category !== "ignored") } } }
                     }
                 }
             }
-            Label { visible: root.currentFiles.length === 0 && !backend.busy; text: "此分类暂无文件"; color: "#93a1b2" }
+            EmptyState { visible: root.currentFiles.length === 0 && !root.libraryLoading; Layout.fillWidth: true; Layout.topMargin: Metrics.space16; title: "此分类暂无文件"; detail: root.category === "needs_review" ? "扫描后未能自动匹配的文件会出现在这里。" : "切换其他分类查看媒体记录。"; iconName: "folder-search" }
         }
     }
-    BusyIndicator { anchors.centerIn: parent; running: backend.busy }
+    BusyIndicator { anchors.centerIn: parent; running: root.libraryLoading && Object.keys(backend.review).length === 0 }
     Component.onCompleted: backend.loadLibrary()
 }

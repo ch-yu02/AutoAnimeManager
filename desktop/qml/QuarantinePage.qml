@@ -1,13 +1,14 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import AutoAnime 1.0
 
 Page {
     id: root
     signal openSubject(int subjectId)
     property bool showHistory: false
     property var pendingDeleteRecord: null
-    background: Rectangle { color: "#0b1018" }
+    background: Rectangle { color: Theme.canvas }
 
     function visibleRecords() {
         const records = backend.cleanupRecords || []
@@ -38,21 +39,22 @@ Page {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 30
-        spacing: 16
+        anchors.margins: Metrics.pageMargin(root.width)
+        spacing: Metrics.space4
 
         RowLayout {
             Layout.fillWidth: true
             Label {
                 text: "隔离区"
-                color: "#f2f5f8"
-                font.pixelSize: 30
-                font.weight: Font.DemiBold
+                color: Theme.textPrimary
+                font.pixelSize: Typography.pageTitle
+                font.weight: Typography.semibold
             }
             Item { Layout.fillWidth: true }
-            Button {
-                text: "刷新"
-                enabled: !backend.busy
+            IconButton {
+                iconName: "refresh-cw"
+                tooltip: "刷新隔离区"
+                enabled: !(backend.activities.cleanupRecordsLoading || false)
                 onClicked: backend.loadCleanupRecords()
             }
         }
@@ -60,19 +62,19 @@ Page {
         Label {
             Layout.fillWidth: true
             text: "隔离中的文件可恢复到原路径，也可在二次确认后立即永久删除。"
-            color: "#93a1b2"
+            color: Theme.textTertiary
             wrapMode: Text.Wrap
         }
 
         ButtonGroup { id: viewGroup }
         RowLayout {
-            RadioButton {
+            AppTab {
                 text: "隔离中"
                 checked: true
                 ButtonGroup.group: viewGroup
                 onCheckedChanged: if (checked) root.showHistory = false
             }
-            RadioButton {
+            AppTab {
                 text: "历史记录"
                 ButtonGroup.group: viewGroup
                 onCheckedChanged: if (checked) root.showHistory = true
@@ -80,7 +82,7 @@ Page {
             Item { Layout.fillWidth: true }
             Label {
                 text: root.visibleRecords().length + " 项"
-                color: "#93a1b2"
+                color: Theme.textTertiary
             }
         }
 
@@ -91,16 +93,15 @@ Page {
 
             ColumnLayout {
                 width: parent.width
-                spacing: 12
+                spacing: Metrics.space3
 
-                Label {
+                EmptyState {
                     Layout.fillWidth: true
-                    visible: root.visibleRecords().length === 0
-                    text: root.showHistory ? "暂无隔离历史" : "隔离区为空"
-                    color: "#93a1b2"
-                    font.pixelSize: 16
-                    horizontalAlignment: Text.AlignHCenter
-                    topPadding: 60
+                    visible: root.visibleRecords().length === 0 && !(backend.activities.cleanupRecordsLoading || false)
+                    title: root.showHistory ? "暂无隔离历史" : "隔离区为空"
+                    detail: root.showHistory ? "恢复和永久删除记录会显示在这里。" : "当前没有等待处理的隔离文件。"
+                    iconName: "archive-restore"
+                    Layout.topMargin: Metrics.space16
                 }
 
                 Repeater {
@@ -109,30 +110,28 @@ Page {
                         required property var modelData
                         Layout.fillWidth: true
                         Layout.preferredHeight: recordContent.implicitHeight + 28
-                        color: "#121a25"
-                        border.color: "#283445"
-                        radius: 10
+                        color: quarantineHover.hovered ? Theme.surfaceHover : Theme.surface
+                        border.color: quarantineHover.hovered ? Theme.border : Theme.borderSoft
+                        radius: Metrics.radiusM
+                        HoverHandler { id: quarantineHover }
 
                         ColumnLayout {
                             id: recordContent
                             anchors.fill: parent
-                            anchors.margins: 14
-                            spacing: 8
+                            anchors.margins: Metrics.space4
+                            spacing: Metrics.space2
 
                             RowLayout {
                                 Layout.fillWidth: true
                                 Label {
                                     Layout.fillWidth: true
                                     text: modelData.subject_name || ("Subject " + modelData.subject_id)
-                                    color: "#f2f5f8"
-                                    font.pixelSize: 18
-                                    font.weight: Font.DemiBold
+                                    color: Theme.textPrimary
+                                    font.pixelSize: Typography.itemTitle
+                                    font.weight: Typography.semibold
                                     elide: Text.ElideRight
                                 }
-                                Label {
-                                    text: root.statusText(modelData.status)
-                                    color: modelData.status === "QUARANTINED" ? "#ffd166" : "#93a1b2"
-                                }
+                                StatusBadge { text: root.statusText(modelData.status); status: modelData.status }
                             }
 
                             Label {
@@ -143,7 +142,7 @@ Page {
                                     + (modelData.status === "QUARANTINED"
                                         ? " · 自动删除时间 " + root.formatTime(modelData.delete_after)
                                         : "")
-                                color: "#93a1b2"
+                                color: Theme.textTertiary
                                 wrapMode: Text.Wrap
                             }
 
@@ -151,27 +150,29 @@ Page {
                                 Layout.fillWidth: true
                                 visible: (modelData.reasons || []).length > 0
                                 text: (modelData.reasons || []).join("；")
-                                color: "#b9c4d0"
+                                color: Theme.textSecondary
                                 wrapMode: Text.Wrap
                             }
 
                             RowLayout {
                                 Layout.fillWidth: true
-                                Button {
+                                AppButton {
                                     text: "查看条目"
                                     onClicked: root.openSubject(modelData.subject_id)
                                 }
                                 Item { Layout.fillWidth: true }
-                                Button {
+                                AppButton {
+                                    variant: "primary"
                                     visible: modelData.status === "QUARANTINED"
                                     text: "恢复到原路径"
-                                    enabled: !backend.busy
+                                    enabled: !(backend.activities.cleanupMutating || false)
                                     onClicked: backend.restoreCleanup(modelData.id)
                                 }
-                                Button {
+                                AppButton {
+                                    variant: "danger"
                                     visible: modelData.status === "QUARANTINED"
                                     text: "永久删除"
-                                    enabled: !backend.busy
+                                    enabled: !(backend.activities.cleanupMutating || false)
                                     onClicked: {
                                         root.pendingDeleteRecord = modelData
                                         permanentDeleteDialog.open()
@@ -185,7 +186,7 @@ Page {
         }
     }
 
-    BusyIndicator { anchors.centerIn: parent; running: backend.busy }
+    BusyIndicator { anchors.centerIn: parent; running: (backend.activities.cleanupRecordsLoading || false) && backend.cleanupRecords.length === 0 }
 
     Dialog {
         id: permanentDeleteDialog
@@ -206,7 +207,7 @@ Page {
                     + " 个隔离文件（" + root.formatBytes(root.pendingDeleteRecord.bytes_total)
                     + "）。此操作不可恢复。"
                 : ""
-            color: "#f2f5f8"
+            color: Theme.textPrimary
             wrapMode: Text.Wrap
         }
     }

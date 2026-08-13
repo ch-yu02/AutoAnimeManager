@@ -3,6 +3,7 @@
 #include "player/MpvVideoItem.h"
 #include "player/PlayerController.h"
 #include "qml/QmlBackend.h"
+#include "qml/DesktopPreferences.h"
 #include "qml/QmlPlayer.h"
 #include "system/SleepInhibitor.h"
 
@@ -37,6 +38,7 @@ int main(int argc, char *argv[])
     QNetworkProxy::setApplicationProxy(QNetworkProxy::NoProxy);
     std::setlocale(LC_NUMERIC, "C");
     QCoreApplication::setApplicationName(QStringLiteral("AutoAnime"));
+    QCoreApplication::setOrganizationName(QStringLiteral("AutoAnime"));
     QCoreApplication::setApplicationVersion(QStringLiteral("0.2.0"));
 
     QCommandLineParser parser;
@@ -72,6 +74,7 @@ int main(int argc, char *argv[])
         autoanime::PlayerController controller(&core, &playbackBackend);
         autoanime::QmlPlayer player(&controller, &core);
         autoanime::QmlBackend backend(backendUrl);
+        autoanime::DesktopPreferences preferences;
         QObject::connect(
             &controller,
             &autoanime::PlayerController::playbackActivityChanged,
@@ -86,6 +89,7 @@ int main(int argc, char *argv[])
         QQmlApplicationEngine engine;
         engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
         engine.rootContext()->setContextProperty(QStringLiteral("player"), &player);
+        engine.rootContext()->setContextProperty(QStringLiteral("preferences"), &preferences);
         engine.rootContext()->setContextProperty(
             QStringLiteral("startupEpisodeId"),
             parser.value(playEpisodeOption).toLongLong()

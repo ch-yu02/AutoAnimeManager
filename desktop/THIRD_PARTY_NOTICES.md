@@ -7,5 +7,6 @@
 - [KDE Haruna](https://invent.kde.org/multimedia/haruna)：GPL-3.0-or-later。只参考播放器交互设计，包括 controls 自动隐藏、双击全屏、轨道菜单和外挂字幕入口，没有复制或打包 Haruna 源码、QML 或 KDE 依赖。
 - [AutoBangumi](https://github.com/EstrellaXD/Auto_Bangumi)：MIT。阶段 2 参考其 qBittorrent 会话复用、认证恢复、版本兼容和重复添加确认流程；实现按本项目状态机重新编写，没有复制或打包其源码。
 - [qBittorrent WebUI API](https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-%28qBittorrent-5.0%29)：阶段 2 按官方接口封装下载任务操作，qBittorrent 仍为独立安装组件。
+- [Lucide](https://lucide.dev/) `lucide-static@1.31.0`：ISC（部分源自 Feather 的图标为 MIT）。桌面客户端直接打包其官方 SVG 图标；完整许可证见 `desktop/qml/icons/LUCIDE_LICENSE.txt`。
 
 项目内部继续复用了已有 `MpvCore`、`PlayerController`、`BackendClient`、Playback Session API 与 `PlaybackStateService`，没有在 QML/C++ 重写 watched、续播位置或 next Episode 业务规则。
