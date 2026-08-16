@@ -34,6 +34,9 @@ signals:
         qint64 episodeId,
         qint64 mediaFileId,
         const QString &mediaPath,
+        const QString &subjectTitle,
+        const QString &episodeDisplayNumber,
+        const QString &episodeTitle,
         double initialPositionSeconds,
         double durationSeconds,
         bool hasDuration

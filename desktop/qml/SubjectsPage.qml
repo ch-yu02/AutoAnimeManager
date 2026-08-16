@@ -29,9 +29,7 @@ Page {
         backend.loadSubjects(collectionType, localOnly)
     }
     function jumpToGroup(index) {
-        const item = groupRepeater.itemAt(index)
-        if (item && contentColumn.height > scroll.availableHeight)
-            scroll.ScrollBar.vertical.position = Math.min(1, item.y / (contentColumn.height - scroll.availableHeight))
+        subjectList.positionViewAtIndex(index, ListView.Beginning)
     }
 
     background: Rectangle { color: Theme.canvas }
@@ -89,46 +87,54 @@ Page {
         }
     }
 
-    ScrollView {
-        id: scroll
+    ListView {
+        id: subjectList
         anchors.fill: parent
         anchors.leftMargin: Metrics.pageMargin(root.width)
         anchors.rightMargin: Metrics.pageMargin(root.width)
         anchors.topMargin: Metrics.space6
-        contentWidth: availableWidth
-        Column {
-            id: contentColumn
-            width: scroll.availableWidth
-            spacing: Metrics.space8
-            Repeater {
-                id: groupRepeater
-                model: root.timeGroups
-                delegate: Column {
-                    id: yearGroup
-                    required property var modelData
-                    width: contentColumn.width
-                    spacing: Metrics.space3
-                    SectionHeader { width: yearGroup.width; title: yearGroup.modelData.label; detail: yearGroup.modelData.items.length + " 部" }
-                    Flow {
-                        id: subjectFlow
-                        width: parent.width
-                        spacing: Metrics.space4
-                        Repeater {
-                            model: yearGroup.modelData.items
-                            delegate: MediaCard { required property var modelData; itemData: modelData; onClicked: root.openSubject(modelData.id) }
-                        }
+        bottomMargin: Metrics.space6
+        spacing: Metrics.space8
+        clip: true
+        reuseItems: true
+        cacheBuffer: Metrics.mediaCardHeight
+        model: root.timeGroups
+        delegate: Item {
+            id: yearGroup
+            required property var modelData
+            width: subjectList.width
+            height: sectionHeader.implicitHeight + Metrics.space3 + subjectFlow.height
+            SectionHeader {
+                id: sectionHeader
+                width: parent.width
+                title: yearGroup.modelData.label
+                detail: yearGroup.modelData.items.length + " 部"
+            }
+            Flow {
+                id: subjectFlow
+                anchors.top: sectionHeader.bottom
+                anchors.topMargin: Metrics.space3
+                width: parent.width
+                height: childrenRect.height
+                spacing: Metrics.space4
+                Repeater {
+                    model: yearGroup.modelData.items
+                    delegate: MediaCard {
+                        required property var modelData
+                        itemData: modelData
+                        onClicked: root.openSubject(modelData.id)
                     }
                 }
             }
-            EmptyState {
-                visible: root.timeGroups.length === 0 && !(backend.activities.subjectsLoading || false)
-                width: contentColumn.width
-                title: "当前分类没有条目"
-                detail: root.localOnly ? "关闭本地筛选以查看全部收藏条目。" : "Bangumi 同步后，条目会按放送年份显示。"
-                iconName: "library-big"
-            }
-            Item { width: 1; height: Metrics.space6 }
         }
+    }
+    EmptyState {
+        visible: root.timeGroups.length === 0 && !(backend.activities.subjectsLoading || false)
+        anchors.centerIn: parent
+        width: Math.min(520, parent.width - Metrics.space12)
+        title: "当前分类没有条目"
+        detail: root.localOnly ? "关闭本地筛选以查看全部收藏条目。" : "Bangumi 同步后，条目会按放送年份显示。"
+        iconName: "library-big"
     }
     BusyIndicator { anchors.centerIn: parent; running: (backend.activities.subjectsLoading || false) && backend.subjects.length === 0 }
     Component.onCompleted: backend.loadSubjects(collectionType, localOnly)

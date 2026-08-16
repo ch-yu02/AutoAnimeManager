@@ -30,7 +30,12 @@ public slots:
     void selectSubtitleTrack(qint64 id);
 
 signals:
-    void playerReady(qint64 episodeId);
+    void playerReady(
+        qint64 episodeId,
+        const QString &subjectTitle,
+        const QString &episodeDisplayNumber,
+        const QString &episodeTitle
+    );
     void playbackStarted(qint64 episodeId);
     void positionChanged(double seconds);
     void durationChanged(double seconds);
@@ -50,6 +55,9 @@ private slots:
         qint64 episodeId,
         qint64 mediaFileId,
         const QString &mediaPath,
+        const QString &subjectTitle,
+        const QString &episodeDisplayNumber,
+        const QString &episodeTitle,
         double initialPositionSeconds,
         double durationSeconds,
         bool hasDuration
@@ -77,6 +85,9 @@ private:
     QTimer m_progressTimer;
     QString m_sessionId;
     QString m_mediaPath;
+    QString m_subjectTitle;
+    QString m_episodeDisplayNumber;
+    QString m_episodeTitle;
     qint64 m_episodeId{-1};
     qint64 m_mediaFileId{-1};
     double m_position{0.0};

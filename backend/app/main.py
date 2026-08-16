@@ -92,7 +92,13 @@ async def lifespan(app: FastAPI):
         "ReleaseSearch", lambda: get_settings().scheduler.auto_download_interval_seconds, tasks.releases
     )
     scheduler.register(
-        "DownloadMonitor", lambda: get_settings().scheduler.download_monitor_interval_seconds, tasks.downloads
+        "DownloadMonitor",
+        lambda: (
+            get_settings().scheduler.download_monitor_interval_seconds
+            if download_service.has_active_jobs()
+            else get_settings().scheduler.download_monitor_idle_interval_seconds
+        ),
+        tasks.downloads,
     )
     scheduler.register(
         "Cleanup", lambda: get_settings().cleanup.interval_seconds, tasks.cleanup_files

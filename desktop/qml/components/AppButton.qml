@@ -8,6 +8,7 @@ Button {
     property string variant: "secondary"
     property string iconName: ""
     property bool selected: false
+    property bool animateBackground: true
     property color foreground: {
         if (!enabled) return Theme.textDisabled
         if (variant === "primary") return Theme.accentInk
@@ -58,7 +59,10 @@ Button {
             : (control.variant === "filter" && control.selected
                 ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.28)
                 : Theme.border)
-        Behavior on color { ColorAnimation { duration: 140 } }
+        Behavior on color {
+            enabled: control.animateBackground
+            ColorAnimation { duration: 140 }
+        }
         Rectangle {
             visible: control.selected && control.variant === "ghost"
             width: 3

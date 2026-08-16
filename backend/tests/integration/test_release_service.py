@@ -230,6 +230,84 @@ async def test_search_reuses_prequel_offset_for_continuous_episode_number(tmp_pa
     _reset()
 
 
+@pytest.mark.anyio
+async def test_search_accepts_episode_number_continued_across_same_season_arc(
+    tmp_path: Path, monkeypatch
+) -> None:
+    episode_id = _prepare(tmp_path, monkeypatch)
+    with session_scope() as session:
+        episode = session.get(Episode, episode_id)
+        assert episode is not None
+        subject = session.get(Subject, episode.subject_id)
+        assert subject is not None
+        subject.name = "Re:ゼロから始める異世界生活 4th season 奪還編"
+        subject.name_cn = "Re：从零开始的异世界生活 第四季 夺还篇"
+        subject.aliases = '["Re：從零開始的異世界生活 第四季 奪還篇"]'
+        episode.sort_number = 78
+        episode.display_number = "78"
+
+        prequel = Subject(
+            bangumi_subject_id=41,
+            name="Re:ゼロから始める異世界生活 4th season 喪失編",
+            name_cn="Re：从零开始的异世界生活 第四季 丧失篇",
+        )
+        session.add(prequel)
+        session.flush()
+        for number in range(1, 12):
+            session.add(Episode(
+                bangumi_episode_id=4100 + number,
+                subject_id=prequel.id,
+                episode_type="MAIN",
+                sort_number=66 + number,
+                display_number=str(66 + number),
+                name=f"Episode {number}",
+            ))
+        prior_season = Subject(
+            bangumi_subject_id=40,
+            name="Re:ゼロから始める異世界生活 3rd season",
+            name_cn="Re：从零开始的异世界生活 第三季",
+        )
+        session.add(prior_season)
+        session.flush()
+        session.add(Episode(
+            bangumi_episode_id=4001,
+            subject_id=prior_season.id,
+            episode_type="MAIN",
+            sort_number=66,
+            display_number="66",
+            name="Previous season finale",
+        ))
+        session.add(SubjectRelation(
+            subject_id=subject.id,
+            related_subject_id=prequel.id,
+            relation_type="前传",
+        ))
+        session.add(SubjectRelation(
+            subject_id=prequel.id,
+            related_subject_id=prior_season.id,
+            relation_type="前传",
+        ))
+
+    provider = FakeProvider([_raw(
+        "season-episode-12",
+        "[ANi] Re：從零開始的異世界生活 第四季 - 12 [1080P][Baha][CHT]",
+        "8",
+    )])
+    service = ReleaseSearchService(
+        provider,
+        FakeDownloadService(),
+        lambda: SimpleNamespace(release_search=ReleaseSearchConfig()),
+    )
+
+    result = await service.search(episode_id)
+    candidate = result["candidates"][0]
+
+    assert candidate["decision"] == "AUTO_ACCEPT"
+    assert "按同季度前篇累计集数换算匹配" in candidate["match_reasons"]
+    assert service.auto_candidate(result["id"]) is not None
+    _reset()
+
+
 def _raw(source_id: str, title: str, hash_digit: str) -> RawRelease:
     return RawRelease(
         source_id=source_id,
@@ -286,6 +364,48 @@ async def test_auto_selection_prefers_fansub_after_three_days_without_local_medi
 
     assert selected is not None
     assert selected["parsed"]["release_group"] == "北宇治字幕组"
+    _reset()
+
+
+@pytest.mark.anyio
+async def test_auto_selection_requires_baha_for_kuro_nezumi_group(
+    tmp_path: Path, monkeypatch
+) -> None:
+    episode_id = _prepare(tmp_path, monkeypatch)
+    provider = FakeProvider([
+        _raw("without-baha", "[黒ネズミたち] 测试动画 - 06 [1080p][CHS]", "e"),
+        _raw("with-baha", "[黒ネズミたち] 测试动画 - 06 [BAHA][1080p][CHS]", "f"),
+    ])
+    service = ReleaseSearchService(
+        provider, FakeDownloadService(),
+        lambda: SimpleNamespace(release_search=ReleaseSearchConfig()),
+    )
+
+    result = await service.search(episode_id)
+    selected = service.auto_candidate(result["id"])
+
+    assert selected is not None
+    assert selected["title"] == "[黒ネズミたち] 测试动画 - 06 [BAHA][1080p][CHS]"
+    _reset()
+
+
+@pytest.mark.anyio
+async def test_kuro_nezumi_without_baha_remains_manual_but_is_not_auto_selected(
+    tmp_path: Path, monkeypatch
+) -> None:
+    episode_id = _prepare(tmp_path, monkeypatch)
+    service = ReleaseSearchService(
+        FakeProvider([
+            _raw("without-baha", "[黒ネズミたち] 测试动画 - 06 [1080p][CHS]", "e"),
+        ]),
+        FakeDownloadService(),
+        lambda: SimpleNamespace(release_search=ReleaseSearchConfig()),
+    )
+
+    result = await service.search(episode_id)
+
+    assert service.auto_candidate(result["id"]) is None
+    assert result["candidates"][0]["downloadable"] is True
     _reset()
 
 

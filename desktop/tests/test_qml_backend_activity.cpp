@@ -20,6 +20,7 @@ public:
     QHash<QString, int> delays;
     QSet<QString> failures;
     QStringList requests;
+    QByteArray downloadsBody{"[]"};
 
     QUrl baseUrl() const
     {
@@ -41,7 +42,7 @@ protected:
             requests.append(key);
             const int delay = delays.value(key, 0);
             const bool fail = failures.contains(key);
-            QTimer::singleShot(delay, socket, [socket, key, fail] {
+            QTimer::singleShot(delay, socket, [this, socket, key, fail] {
                 if (fail) {
                     socket->disconnectFromHost();
                     return;
@@ -52,7 +53,7 @@ protected:
                 } else if (key == QStringLiteral("POST /api/library/scan")) {
                     body = R"({"status":"RUNNING"})";
                 } else if (key == QStringLiteral("GET /api/downloads")) {
-                    body = "[]";
+                    body = downloadsBody;
                 } else if (key.startsWith(QStringLiteral("GET /api/subjects/search?"))) {
                     body = "[]";
                 }
@@ -122,6 +123,7 @@ private slots:
         FakeHttpServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
         server.delays.insert(QStringLiteral("GET /api/downloads"), 1800);
+        server.downloadsBody = R"([{"state":"DOWNLOADING"}])";
         QmlBackend backend(server.baseUrl());
 
         backend.setDownloadPolling(QStringLiteral("downloads"), true);
@@ -138,6 +140,19 @@ private slots:
         const int stoppedCount = server.requests.count(QStringLiteral("GET /api/downloads"));
         QTest::qWait(1650);
         QCOMPARE(server.requests.count(QStringLiteral("GET /api/downloads")), stoppedCount);
+    }
+
+    void idleDownloadPollingStopsAfterInitialRefresh()
+    {
+        FakeHttpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        QmlBackend backend(server.baseUrl());
+
+        backend.setDownloadPolling(QStringLiteral("downloads"), true);
+        QTRY_COMPARE(server.requests.count(QStringLiteral("GET /api/downloads")), 1);
+        QTRY_VERIFY(!backend.activities().value(QStringLiteral("downloadsLoading")).toBool());
+        QTest::qWait(1650);
+        QCOMPARE(server.requests.count(QStringLiteral("GET /api/downloads")), 1);
     }
 };
 

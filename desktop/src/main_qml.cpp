@@ -5,6 +5,7 @@
 #include "qml/QmlBackend.h"
 #include "qml/DesktopPreferences.h"
 #include "qml/QmlPlayer.h"
+#include "qml/RoundedCornerMaskItem.h"
 #include "system/SleepInhibitor.h"
 
 #include <QCommandLineParser>
@@ -86,6 +87,7 @@ int main(int argc, char *argv[])
         });
 
         qmlRegisterType<autoanime::MpvVideoItem>("AutoAnime", 1, 0, "MpvVideoItem");
+        qmlRegisterType<autoanime::RoundedCornerMaskItem>("AutoAnime", 1, 0, "RoundedCornerMaskItem");
         QQmlApplicationEngine engine;
         engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
         engine.rootContext()->setContextProperty(QStringLiteral("player"), &player);

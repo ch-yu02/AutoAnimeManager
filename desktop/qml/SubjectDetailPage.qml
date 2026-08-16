@@ -251,20 +251,19 @@ Page {
                 color: Theme.textTertiary
                 horizontalAlignment: Text.AlignHCenter
             }
-            ScrollView {
+            ListView {
                 id: candidateScroll
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                contentWidth: availableWidth
-                ColumnLayout {
-                    width: candidateScroll.availableWidth
-                    spacing: Metrics.space3
-                    Repeater {
-                        model: backend.releaseSearch.candidates || []
-                        delegate: Rectangle {
+                spacing: Metrics.space3
+                clip: true
+                reuseItems: true
+                cacheBuffer: 320
+                model: backend.releaseSearch.candidates || []
+                delegate: Rectangle {
                             required property var modelData
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: candidateContent.implicitHeight + 24
+                            width: candidateScroll.width
+                            height: candidateContent.implicitHeight + 24
                             radius: Metrics.radiusS
                             color: candidateHover.hovered ? Theme.surfaceHover : Theme.surface
                             border.width: 1
@@ -327,8 +326,6 @@ Page {
                                     }
                                 }
                             }
-                        }
-                    }
                 }
             }
         }

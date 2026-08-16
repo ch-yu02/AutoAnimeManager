@@ -146,6 +146,7 @@ private:
     );
     void beginActivity(const QString &activity);
     void endActivity(const QString &activity);
+    void updateDownloadPollingTimer();
     QUrl url(const QString &path) const;
     void setError(const QString &message);
     void setNotice(const QString &message);

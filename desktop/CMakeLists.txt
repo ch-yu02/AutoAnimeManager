@@ -54,6 +54,8 @@ qt_add_executable(autoanime-desktop
     src/qml/DesktopPreferences.h
     src/qml/QmlPlayer.cpp
     src/qml/QmlPlayer.h
+    src/qml/RoundedCornerMaskItem.cpp
+    src/qml/RoundedCornerMaskItem.h
 )
 set_source_files_properties(
     qml/theme/Theme.qml
@@ -79,6 +81,7 @@ qt_add_qml_module(autoanime-desktop
         qml/theme/Metrics.qml
         qml/components/AppButton.qml
         qml/components/AppProgressBar.qml
+        qml/components/PlayerSlider.qml
         qml/components/IconButton.qml
         qml/components/RoundedImage.qml
         qml/components/SectionHeader.qml

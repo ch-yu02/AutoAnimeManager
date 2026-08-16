@@ -12,7 +12,7 @@ ApplicationWindow {
     minimumHeight: 600
     visible: true
     title: "AutoAnime"
-    color: Theme.canvas
+    color: playerOpen ? Theme.screenBlack : Theme.canvas
     font.family: Typography.family
     Material.theme: Theme.isLight ? Material.Light : Material.Dark
     Material.accent: Theme.accent
@@ -36,13 +36,33 @@ ApplicationWindow {
 
     property bool playerOpen: stack.currentItem && stack.currentItem.objectName === "playerPage"
     property string currentRoot: "home"
+    property var cachedRoots: ({})
 
-    function leavePlayer() { if (playerOpen) player.stop() }
+    function leavePlayer() {
+        if (!playerOpen) return
+        if (window.visibility === Window.FullScreen) window.showNormal()
+        player.stop()
+    }
+    function cachedRoot(component, name) {
+        let page = cachedRoots[name]
+        if (!page) {
+            page = component.createObject(stack)
+            if (!page) {
+                console.error("无法创建根页面：" + name)
+                return null
+            }
+            cachedRoots[name] = page
+        }
+        return page
+    }
     function openRoot(component, name) {
         leavePlayer()
+        const page = cachedRoot(component, name)
+        if (!page) return
         currentRoot = name
+        if (stack.currentItem === page) return
         stack.clear()
-        stack.push(component)
+        stack.push(page)
     }
     function openHome() { openRoot(homeComponent, "home") }
     function openSubjects() { openRoot(subjectsComponent, "subjects") }
@@ -104,8 +124,8 @@ ApplicationWindow {
                     Layout.leftMargin: Metrics.space3
                     Layout.bottomMargin: Metrics.space1
                 }
-                AppButton { Layout.fillWidth: true; text: "首页"; iconName: "house"; variant: "ghost"; selected: window.currentRoot === "home"; onClicked: window.openHome() }
-                AppButton { Layout.fillWidth: true; text: "条目"; iconName: "library-big"; variant: "ghost"; selected: window.currentRoot === "subjects"; onClicked: window.openSubjects() }
+                AppButton { Layout.fillWidth: true; text: "首页"; iconName: "house"; variant: "ghost"; animateBackground: false; selected: window.currentRoot === "home"; onClicked: window.openHome() }
+                AppButton { Layout.fillWidth: true; text: "条目"; iconName: "library-big"; variant: "ghost"; animateBackground: false; selected: window.currentRoot === "subjects"; onClicked: window.openSubjects() }
                 Label {
                     text: "管理"
                     color: Theme.textTertiary
@@ -115,11 +135,11 @@ ApplicationWindow {
                     Layout.topMargin: Metrics.space6
                     Layout.bottomMargin: Metrics.space1
                 }
-                AppButton { Layout.fillWidth: true; text: "媒体库"; iconName: "folder-search"; variant: "ghost"; selected: window.currentRoot === "library"; onClicked: window.openLibrary() }
-                AppButton { Layout.fillWidth: true; text: "下载"; iconName: "download"; variant: "ghost"; selected: window.currentRoot === "downloads"; onClicked: window.openDownloads() }
-                AppButton { Layout.fillWidth: true; text: "隔离区"; iconName: "archive-restore"; variant: "ghost"; selected: window.currentRoot === "quarantine"; onClicked: window.openQuarantine() }
+                AppButton { Layout.fillWidth: true; text: "媒体库"; iconName: "folder-search"; variant: "ghost"; animateBackground: false; selected: window.currentRoot === "library"; onClicked: window.openLibrary() }
+                AppButton { Layout.fillWidth: true; text: "下载"; iconName: "download"; variant: "ghost"; animateBackground: false; selected: window.currentRoot === "downloads"; onClicked: window.openDownloads() }
+                AppButton { Layout.fillWidth: true; text: "隔离区"; iconName: "archive-restore"; variant: "ghost"; animateBackground: false; selected: window.currentRoot === "quarantine"; onClicked: window.openQuarantine() }
                 Item { Layout.fillHeight: true }
-                AppButton { Layout.fillWidth: true; text: "设置"; iconName: "settings"; variant: "ghost"; selected: window.currentRoot === "settings"; onClicked: window.openSettings() }
+                AppButton { Layout.fillWidth: true; text: "设置"; iconName: "settings"; variant: "ghost"; animateBackground: false; selected: window.currentRoot === "settings"; onClicked: window.openSettings() }
                 Label {
                     text: backend.status.version ? "Core " + backend.status.version : "本地原生客户端"
                     color: Theme.textDisabled
@@ -134,7 +154,6 @@ ApplicationWindow {
             id: stack
             Layout.fillWidth: true
             Layout.fillHeight: true
-            initialItem: homeComponent
             clip: true
             pushEnter: Transition { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 220; easing.type: Easing.OutCubic } }
             pushExit: Transition { NumberAnimation { property: "opacity"; from: 1; to: 0.84; duration: 120 } }
@@ -202,6 +221,7 @@ ApplicationWindow {
     Component.onCompleted: {
         Theme.themeId = preferences.themeId
         backend.loadSettings()
+        openHome()
         if (startupEpisodeId > 0) openPlayer(startupEpisodeId, false, [], "播放性能验收")
     }
 }

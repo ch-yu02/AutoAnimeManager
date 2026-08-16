@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
+import re
 from urllib.parse import parse_qs, quote, urlparse
 import xml.etree.ElementTree as ET
 
 import httpx
 
 from backend.app.modules.download.magnet import InvalidMagnet, normalize_magnet
-from backend.app.modules.library.matcher import base_title
+from backend.app.modules.library.matcher import base_title, scope_number
 from backend.app.modules.release.provider import ReleaseProviderError
 from backend.app.modules.release.schemas import RawRelease
 
@@ -67,17 +68,23 @@ def _search_terms(subject_names: list[str], limit: int) -> list[str]:
     names = list(dict.fromkeys(name.strip() for name in subject_names if name.strip()))
     if not names:
         return []
-    terms = [names[0]]
-    primary_base = base_title(names[0])
-    if primary_base and primary_base != names[0].casefold():
-        terms.append(primary_base)
-    for name in names[1:]:
-        if name not in terms:
-            terms.append(name)
-        base = base_title(name)
-        if base and base not in {item.casefold() for item in terms}:
-            terms.append(base)
+    terms: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        without_arc = _without_season_arc(name)
+        for term in (name, without_arc, base_title(without_arc)):
+            key = term.casefold().strip()
+            if key and key not in seen:
+                seen.add(key)
+                terms.append(term.strip())
     return terms[:limit]
+
+
+def _without_season_arc(value: str) -> str:
+    """Drop a named arc suffix only when a season scope already disambiguates the title."""
+    if scope_number(value, "season") is None:
+        return value
+    return re.sub(r"\s+[^\s]{1,24}(?:篇|編)\s*$", "", value).strip()
 
 
 def _rss_url(fallback_url: str, template: str, subject_name: str) -> str:

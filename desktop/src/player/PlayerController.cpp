@@ -161,6 +161,9 @@ void PlayerController::onSessionCreated(
     qint64 episodeId,
     qint64 mediaFileId,
     const QString &mediaPath,
+    const QString &subjectTitle,
+    const QString &episodeDisplayNumber,
+    const QString &episodeTitle,
     double initialPositionSeconds,
     double durationSeconds,
     bool hasDuration
@@ -173,6 +176,9 @@ void PlayerController::onSessionCreated(
     m_sessionId = sessionId;
     m_mediaFileId = mediaFileId;
     m_mediaPath = mediaPath;
+    m_subjectTitle = subjectTitle;
+    m_episodeDisplayNumber = episodeDisplayNumber;
+    m_episodeTitle = episodeTitle;
     m_pendingPosition = initialPositionSeconds;
     m_duration = hasDuration ? durationSeconds : 0.0;
     m_hasBackendDuration = hasDuration;
@@ -196,7 +202,7 @@ void PlayerController::onFileLoaded(const QString &path)
     m_fileLoaded = true;
     updatePlaybackActivity();
     m_progressTimer.start();
-    emit playerReady(m_episodeId);
+    emit playerReady(m_episodeId, m_subjectTitle, m_episodeDisplayNumber, m_episodeTitle);
     emit playbackStarted(m_episodeId);
 }
 
@@ -266,6 +272,9 @@ void PlayerController::resetSession()
     m_progressTimer.stop();
     m_sessionId.clear();
     m_mediaPath.clear();
+    m_subjectTitle.clear();
+    m_episodeDisplayNumber.clear();
+    m_episodeTitle.clear();
     m_episodeId = -1;
     m_mediaFileId = -1;
     m_pendingPosition = 0.0;

@@ -6,6 +6,8 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from backend.app.database.models import Subject
+from backend.app.database.session import session_scope
 from backend.app.modules.playback.state_service import PlaybackStateService
 
 logger = logging.getLogger(__name__)
@@ -17,6 +19,9 @@ class PlaybackSession:
     episode_id: int
     media_file_id: int
     media_path: str
+    subject_title: str
+    episode_display_number: str
+    episode_title: str
     initial_position_seconds: float
     duration_seconds: float | None
     created_at: datetime
@@ -28,6 +33,9 @@ class PlaybackSession:
             "episode_id": self.episode_id,
             "media_file_id": self.media_file_id,
             "media_path": self.media_path,
+            "subject_title": self.subject_title,
+            "episode_display_number": self.episode_display_number,
+            "episode_title": self.episode_title,
             "initial_position_seconds": self.initial_position_seconds,
             "duration_seconds": self.duration_seconds,
             "created_at": self.created_at,
@@ -49,11 +57,23 @@ class PlaybackSessionService:
         episode, media = self.state_service.playable_media(episode_id)
         state = self.state_service.begin(episode.id, media.id)
         initial_position = 0.0 if from_start else float(state["position_seconds"] or 0.0)
+        subject_title = ""
+        subject_id = getattr(episode, "subject_id", None)
+        if subject_id is not None:
+            with session_scope() as session:
+                subject = session.get(Subject, subject_id)
+                if subject is not None:
+                    subject_title = subject.name_cn or subject.name
         session = PlaybackSession(
             session_id=str(uuid.uuid4()),
             episode_id=episode.id,
             media_file_id=media.id,
             media_path=media.path,
+            subject_title=subject_title,
+            episode_display_number=str(getattr(episode, "display_number", "") or ""),
+            episode_title=(
+                str(getattr(episode, "name_cn", "") or getattr(episode, "name", "") or "")
+            ),
             initial_position_seconds=initial_position,
             duration_seconds=state.get("duration_seconds"),
             created_at=datetime.now(UTC),

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 
 from backend.app.config import get_settings
 from backend.app.database.models import Episode, EpisodeFile, IgnoredMediaPath, MediaFile, Subject
@@ -146,6 +146,16 @@ async def review_queue() -> dict[str, list[dict[str, object]]]:
             "ignored": [_file_view(session, item) for item in media if item.ignored],
             "missing": [_file_view(session, item) for item in media if not item.exists],
         }
+
+
+@router.get("/review/count")
+async def review_count() -> dict[str, int]:
+    with session_scope() as session:
+        count = session.scalar(select(func.count(MediaFile.id)).where(
+            MediaFile.review_reason.is_not(None),
+            MediaFile.ignored.is_(False),
+        )) or 0
+        return {"needs_review_count": int(count)}
 
 
 @router.post("/review/rematch")

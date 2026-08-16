@@ -64,6 +64,9 @@ void BackendClient::createPlaybackSession(qint64 episodeId, bool fromStart, quin
                 object.value(QStringLiteral("episode_id")).toInteger(),
                 object.value(QStringLiteral("media_file_id")).toInteger(),
                 object.value(QStringLiteral("media_path")).toString(),
+                object.value(QStringLiteral("subject_title")).toString(),
+                object.value(QStringLiteral("episode_display_number")).toString(),
+                object.value(QStringLiteral("episode_title")).toString(),
                 object.value(QStringLiteral("initial_position_seconds")).toDouble(),
                 duration.toDouble(),
                 !duration.isNull() && !duration.isUndefined()

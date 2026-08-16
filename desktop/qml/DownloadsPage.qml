@@ -37,19 +37,19 @@ Page {
             color: Theme.textTertiary
             wrapMode: Text.Wrap
         }
-        ScrollView {
+        ListView {
+            id: downloadList
             Layout.fillWidth: true
             Layout.fillHeight: true
-            contentWidth: availableWidth
-            ColumnLayout {
-                width: parent.width
-                spacing: Metrics.space2
-                Repeater {
-                    model: backend.downloads
-                    delegate: Rectangle {
+            spacing: Metrics.space2
+            clip: true
+            reuseItems: true
+            cacheBuffer: 208
+            model: backend.downloads
+            delegate: Rectangle {
                         required property var modelData
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 104
+                        width: downloadList.width
+                        height: 104
                         radius: Metrics.radiusS
                         color: downloadHover.hovered ? Theme.surfaceHover : Theme.surface
                         border.width: 1
@@ -109,12 +109,10 @@ Page {
                                 }
                             }
                         }
-                    }
-                }
-                EmptyState { visible: backend.downloads.length === 0 && !(backend.activities.downloadsLoading || false); Layout.fillWidth: true; Layout.topMargin: Metrics.space16; title: "暂无下载任务"; detail: "从 Episode 资源候选或磁力链接创建下载。"; iconName: "download" }
             }
         }
     }
+    EmptyState { visible: backend.downloads.length === 0 && !(backend.activities.downloadsLoading || false); anchors.centerIn: parent; width: Math.min(520, parent.width - Metrics.space12); title: "暂无下载任务"; detail: "从 Episode 资源候选或磁力链接创建下载。"; iconName: "download" }
     Dialog {
         id: deleteDialog
         anchors.centerIn: parent

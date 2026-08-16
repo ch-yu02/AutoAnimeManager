@@ -13,10 +13,19 @@ QmlPlayer::QmlPlayer(PlayerController *controller, MpvCore *core, QObject *paren
     , m_controller(controller)
     , m_core(core)
 {
-    connect(controller, &PlayerController::playerReady, this, [this](qint64 episodeId) {
+    connect(controller, &PlayerController::playerReady, this, [this](
+        qint64 episodeId,
+        const QString &subjectTitle,
+        const QString &episodeDisplayNumber,
+        const QString &episodeTitle
+    ) {
         m_episodeId = episodeId;
+        m_subjectTitle = subjectTitle;
+        m_episodeDisplayNumber = episodeDisplayNumber;
+        m_episodeTitle = episodeTitle;
         m_loading = false;
         emit episodeIdChanged();
+        emit episodeMetadataChanged();
         emit loadingChanged();
     });
     connect(controller, &PlayerController::positionChanged, this, [this](double value) {
@@ -74,9 +83,13 @@ QmlPlayer::QmlPlayer(PlayerController *controller, MpvCore *core, QObject *paren
     connect(controller, &PlayerController::playbackEnded, this, &QmlPlayer::playbackEnded);
     connect(controller, &PlayerController::playbackStopped, this, [this](qint64 episodeId) {
         m_episodeId = -1;
+        m_subjectTitle.clear();
+        m_episodeDisplayNumber.clear();
+        m_episodeTitle.clear();
         m_position = 0.0;
         m_duration = 0.0;
         emit episodeIdChanged();
+        emit episodeMetadataChanged();
         emit positionChanged();
         emit durationChanged();
         emit playbackStopped(episodeId);

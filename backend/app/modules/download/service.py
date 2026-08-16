@@ -174,6 +174,12 @@ class DownloadService:
             jobs = list(session.scalars(select(DownloadJob).order_by(DownloadJob.created_at.desc())))
             return [self._view(session, job) for job in jobs]
 
+    def has_active_jobs(self) -> bool:
+        with session_scope() as session:
+            return session.scalar(
+                select(DownloadJob.id).where(DownloadJob.state.in_(ACTIVE_STATES)).limit(1)
+            ) is not None
+
     def get(self, job_id: str) -> dict[str, object]:
         with session_scope() as session:
             job = session.get(DownloadJob, job_id)

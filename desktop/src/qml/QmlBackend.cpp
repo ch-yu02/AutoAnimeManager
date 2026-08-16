@@ -161,7 +161,7 @@ void QmlBackend::loadHome()
         m_recentMedia = value.toList();
         emit homeChanged();
     }, QStringLiteral("homeLoading"));
-    send("GET", QStringLiteral("api/library/review"), {}, [this](const QVariant &value) {
+    send("GET", QStringLiteral("api/library/review/count"), {}, [this](const QVariant &value) {
         m_review = value.toMap();
         emit homeChanged();
     }, QStringLiteral("homeLoading"));
@@ -369,8 +369,32 @@ void QmlBackend::loadDownloads()
 {
     send("GET", QStringLiteral("api/downloads"), {}, [this](const QVariant &value) {
         m_downloads = value.toList();
+        updateDownloadPollingTimer();
         emit downloadsChanged();
     }, QStringLiteral("downloadsLoading"));
+}
+
+void QmlBackend::updateDownloadPollingTimer()
+{
+    if (m_downloadPollingOwners.isEmpty()) {
+        m_downloadTimer.stop();
+        return;
+    }
+    static const QSet<QString> activeStates{
+        QStringLiteral("CREATED"), QStringLiteral("QUEUED"),
+        QStringLiteral("DOWNLOADING"), QStringLiteral("STALLED"),
+        QStringLiteral("COMPLETED"), QStringLiteral("IMPORTING"),
+    };
+    const bool hasActiveDownload = std::any_of(
+        m_downloads.cbegin(), m_downloads.cend(), [](const QVariant &download) {
+            return activeStates.contains(download.toMap().value(QStringLiteral("state")).toString());
+        }
+    );
+    if (hasActiveDownload) {
+        m_downloadTimer.start();
+    } else {
+        m_downloadTimer.stop();
+    }
 }
 
 void QmlBackend::setDownloadPolling(const QString &owner, bool enabled)
@@ -383,13 +407,11 @@ void QmlBackend::setDownloadPolling(const QString &owner, bool enabled)
         m_downloadPollingOwners.insert(owner);
         if (wasInactive) {
             loadDownloads();
-            m_downloadTimer.start();
+            updateDownloadPollingTimer();
         }
     } else {
         m_downloadPollingOwners.remove(owner);
-        if (m_downloadPollingOwners.isEmpty()) {
-            m_downloadTimer.stop();
-        }
+        updateDownloadPollingTimer();
     }
 }
 

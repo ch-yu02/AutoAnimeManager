@@ -167,7 +167,9 @@ ScrollView {
         }
 
         Rectangle {
-            property int count: (backend.review.needs_review || []).length
+            property int count: backend.review.needs_review_count !== undefined
+                ? backend.review.needs_review_count
+                : (backend.review.needs_review || []).length
             visible: count > 0
             Layout.fillWidth: true
             Layout.preferredHeight: 56

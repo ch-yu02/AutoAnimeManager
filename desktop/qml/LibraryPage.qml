@@ -111,19 +111,20 @@ Page {
         }
     }
 
-    ScrollView {
+    ListView {
+        id: fileList
         anchors.fill: parent
         anchors.leftMargin: Metrics.pageMargin(root.width); anchors.rightMargin: Metrics.pageMargin(root.width); anchors.topMargin: Metrics.space6
-        contentWidth: availableWidth
-        ColumnLayout {
-            width: parent.width
-            spacing: Metrics.space2
-            Repeater {
-                model: root.currentFiles
-                delegate: Rectangle {
+        bottomMargin: Metrics.space6
+        spacing: Metrics.space2
+        clip: true
+        reuseItems: true
+        cacheBuffer: 192
+        model: root.currentFiles
+        delegate: Rectangle {
                     required property var modelData
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 96
+                    width: fileList.width
+                    height: 96
                     radius: Metrics.radiusS; color: fileHover.hovered ? Theme.surfaceHover : Theme.surface
                     border.width: 1; border.color: fileHover.hovered ? Theme.border : Theme.borderSoft
                     HoverHandler { id: fileHover }
@@ -138,11 +139,9 @@ Page {
                         AppButton { visible: root.category === "needs_review"; text: "应用关联"; variant: "primary"; enabled: root.selectedSubjectId > 0 && root.selectedEpisodeId > 0 && !(backend.activities.libraryMutating || false); onClicked: backend.matchFile(modelData.id, root.selectedSubjectId, [root.selectedEpisodeId]) }
                         IconButton { iconName: "more-horizontal"; tooltip: "更多操作"; enabled: !(backend.activities.libraryMutating || false); onClicked: fileMenu.open(); Menu { id: fileMenu; MenuItem { visible: root.category === "needs_review"; text: "重新解析"; onTriggered: backend.reparseFile(modelData.id) } MenuItem { visible: root.category === "manually_linked"; text: "解除关联"; onTriggered: backend.unlinkFile(modelData.id) } MenuItem { text: root.category === "ignored" ? "恢复" : "忽略"; onTriggered: backend.ignoreFile(modelData.id, root.category !== "ignored") } } }
                     }
-                }
-            }
-            EmptyState { visible: root.currentFiles.length === 0 && !root.libraryLoading; Layout.fillWidth: true; Layout.topMargin: Metrics.space16; title: "此分类暂无文件"; detail: root.category === "needs_review" ? "扫描后未能自动匹配的文件会出现在这里。" : "切换其他分类查看媒体记录。"; iconName: "folder-search" }
         }
     }
+    EmptyState { visible: root.currentFiles.length === 0 && !root.libraryLoading; anchors.centerIn: parent; width: Math.min(520, parent.width - Metrics.space12); title: "此分类暂无文件"; detail: root.category === "needs_review" ? "扫描后未能自动匹配的文件会出现在这里。" : "切换其他分类查看媒体记录。"; iconName: "folder-search" }
     BusyIndicator { anchors.centerIn: parent; running: root.libraryLoading && Object.keys(backend.review).length === 0 }
     Component.onCompleted: backend.loadLibrary()
 }

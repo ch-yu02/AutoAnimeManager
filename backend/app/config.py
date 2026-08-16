@@ -122,6 +122,7 @@ class SchedulerConfig(BaseModel):
     library_scan_interval_seconds: float = Field(default=900.0, ge=30, le=86400)
     demand_refresh_interval_seconds: float = Field(default=60.0, ge=5, le=3600)
     download_monitor_interval_seconds: float = Field(default=3.0, ge=0.5, le=300)
+    download_monitor_idle_interval_seconds: float = Field(default=60.0, ge=5, le=3600)
     failure_backoff_seconds: float = Field(default=30.0, ge=1, le=3600)
     failure_backoff_max_seconds: float = Field(default=1800.0, ge=1, le=86400)
 

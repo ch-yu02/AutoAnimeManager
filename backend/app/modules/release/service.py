@@ -174,6 +174,10 @@ class ReleaseSearchService:
                     ReleaseCandidate.magnet_uri != "",
                 )
             ))
+            candidates = [
+                candidate for candidate in candidates
+                if self._meets_group_source_requirement(candidate)
+            ]
             locked_groups = self._subject_release_groups(session, episode.subject_id)
             replacement_ids = self._ani_replacement_media_ids(session, episode)
             if locked_groups:
@@ -335,6 +339,12 @@ class ReleaseSearchService:
             candidate.score,
             published,
         )
+
+    @staticmethod
+    def _meets_group_source_requirement(candidate: ReleaseCandidate) -> bool:
+        if "黒ネズミたち" not in group_keys(candidate.release_group):
+            return True
+        return "baha" in candidate.title.casefold()
 
     @staticmethod
     def _candidate_view(candidate: ReleaseCandidate) -> dict[str, object]:

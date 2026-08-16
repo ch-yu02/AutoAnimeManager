@@ -139,3 +139,30 @@ async def test_kisssub_provider_keeps_seasonless_primary_title_within_query_limi
 
     assert requested_paths[0] == "/rss-超超超超超喜欢你的100个女朋友 第三季.xml"
     assert requested_paths[1] == "/rss-超超超超超喜欢你的100个女朋友.xml"
+
+
+@pytest.mark.anyio
+async def test_kisssub_provider_relaxes_named_arc_without_losing_season_query() -> None:
+    requested_paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested_paths.append(request.url.path)
+        return httpx.Response(200, content=RSS)
+
+    provider = KissSubRSSProvider(
+        lambda: ReleaseSearchConfig(
+            rss_url_template="https://rss.test/rss-{query}.xml",
+            max_query_terms=3,
+        ),
+        transport=httpx.MockTransport(handler),
+    )
+    await provider.search([
+        "Re：从零开始的异世界生活 第四季 夺还篇",
+        "Re:ゼロから始める異世界生活 4th season 奪還編",
+    ], 1)
+
+    assert requested_paths == [
+        "/rss-Re：从零开始的异世界生活 第四季 夺还篇.xml",
+        "/rss-Re：从零开始的异世界生活 第四季.xml",
+        "/rss-re 从零开始的异世界生活.xml",
+    ]

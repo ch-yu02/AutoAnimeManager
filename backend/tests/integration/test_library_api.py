@@ -64,6 +64,7 @@ async def test_manual_multi_episode_link_ignore_restore_and_unlink(tmp_path: Pat
     app = create_app()
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            review_count = await client.get("/api/library/review/count")
             linked = await client.post("/api/library/files/1/match", json={
                 "subject_id": subject_id, "episode_ids": episode_ids,
                 "primary": True, "lock": True, "write_manifest": True,
@@ -79,6 +80,7 @@ async def test_manual_multi_episode_link_ignore_restore_and_unlink(tmp_path: Pat
             ignored = await client.post("/api/library/files/1/ignore", json={"ignored": True})
 
     assert linked.status_code == 200
+    assert review_count.json() == {"needs_review_count": 1}
     assert recent.status_code == 200
     assert recent.json()[0]["filename"] == video.name
     assert recent.json()[0]["subject"]["id"] == subject_id

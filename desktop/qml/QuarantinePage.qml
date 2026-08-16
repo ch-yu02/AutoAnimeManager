@@ -86,30 +86,19 @@ Page {
             }
         }
 
-        ScrollView {
+        ListView {
+            id: recordList
             Layout.fillWidth: true
             Layout.fillHeight: true
-            contentWidth: availableWidth
-
-            ColumnLayout {
-                width: parent.width
-                spacing: Metrics.space3
-
-                EmptyState {
-                    Layout.fillWidth: true
-                    visible: root.visibleRecords().length === 0 && !(backend.activities.cleanupRecordsLoading || false)
-                    title: root.showHistory ? "暂无隔离历史" : "隔离区为空"
-                    detail: root.showHistory ? "恢复和永久删除记录会显示在这里。" : "当前没有等待处理的隔离文件。"
-                    iconName: "archive-restore"
-                    Layout.topMargin: Metrics.space16
-                }
-
-                Repeater {
-                    model: root.visibleRecords()
-                    delegate: Rectangle {
+            spacing: Metrics.space3
+            clip: true
+            reuseItems: true
+            cacheBuffer: 256
+            model: root.visibleRecords()
+            delegate: Rectangle {
                         required property var modelData
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: recordContent.implicitHeight + 28
+                        width: recordList.width
+                        height: recordContent.implicitHeight + 28
                         color: quarantineHover.hovered ? Theme.surfaceHover : Theme.surface
                         border.color: quarantineHover.hovered ? Theme.border : Theme.borderSoft
                         radius: Metrics.radiusM
@@ -180,10 +169,17 @@ Page {
                                 }
                             }
                         }
-                    }
-                }
             }
         }
+    }
+
+    EmptyState {
+        anchors.centerIn: parent
+        width: Math.min(520, parent.width - Metrics.space12)
+        visible: root.visibleRecords().length === 0 && !(backend.activities.cleanupRecordsLoading || false)
+        title: root.showHistory ? "暂无隔离历史" : "隔离区为空"
+        detail: root.showHistory ? "恢复和永久删除记录会显示在这里。" : "当前没有等待处理的隔离文件。"
+        iconName: "archive-restore"
     }
 
     BusyIndicator { anchors.centerIn: parent; running: (backend.activities.cleanupRecordsLoading || false) && backend.cleanupRecords.length === 0 }

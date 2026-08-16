@@ -11,6 +11,9 @@ class PlayerController;
 class QmlPlayer final : public QObject {
     Q_OBJECT
     Q_PROPERTY(qint64 episodeId READ episodeId NOTIFY episodeIdChanged)
+    Q_PROPERTY(QString subjectTitle READ subjectTitle NOTIFY episodeMetadataChanged)
+    Q_PROPERTY(QString episodeDisplayNumber READ episodeDisplayNumber NOTIFY episodeMetadataChanged)
+    Q_PROPERTY(QString episodeTitle READ episodeTitle NOTIFY episodeMetadataChanged)
     Q_PROPERTY(double position READ position NOTIFY positionChanged)
     Q_PROPERTY(double duration READ duration NOTIFY durationChanged)
     Q_PROPERTY(double volume READ volume NOTIFY volumeChanged)
@@ -28,6 +31,9 @@ public:
     QmlPlayer(PlayerController *controller, MpvCore *core, QObject *parent = nullptr);
 
     qint64 episodeId() const noexcept { return m_episodeId; }
+    QString subjectTitle() const { return m_subjectTitle; }
+    QString episodeDisplayNumber() const { return m_episodeDisplayNumber; }
+    QString episodeTitle() const { return m_episodeTitle; }
     double position() const noexcept { return m_position; }
     double duration() const noexcept { return m_duration; }
     double volume() const noexcept { return m_volume; }
@@ -55,6 +61,7 @@ public:
 
 signals:
     void episodeIdChanged();
+    void episodeMetadataChanged();
     void positionChanged();
     void durationChanged();
     void volumeChanged();
@@ -72,6 +79,9 @@ private:
     PlayerController *m_controller;
     MpvCore *m_core;
     qint64 m_episodeId{-1};
+    QString m_subjectTitle;
+    QString m_episodeDisplayNumber;
+    QString m_episodeTitle;
     double m_position{0.0};
     double m_duration{0.0};
     double m_volume{100.0};

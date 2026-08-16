@@ -178,6 +178,35 @@ def prequel_main_count(session: Session, subject_id: int, visited: set[int] | No
     )
 
 
+def same_season_prequel_main_count(
+    session: Session,
+    subject_id: int,
+    target_seasons: set[int] | None = None,
+    visited: set[int] | None = None,
+) -> int:
+    """Count consecutive prequel subjects belonging to the same numbered season."""
+    subject = session.get(Subject, subject_id)
+    seasons = target_seasons or (subject_scope_numbers(subject, "season") if subject else set())
+    if not seasons or subject_id in (visited or set()):
+        return 0
+    visited = set() if visited is None else visited
+    visited.add(subject_id)
+    relation = session.scalar(
+        select(SubjectRelation).where(
+            SubjectRelation.subject_id == subject_id,
+            SubjectRelation.relation_type.in_(("前传", "PREQUEL", "prequel")),
+        ).limit(1)
+    )
+    if relation is None:
+        return 0
+    related = session.get(Subject, relation.related_subject_id)
+    if related is None or not (subject_scope_numbers(related, "season") & seasons):
+        return 0
+    return _main_episode_count(session, related.id) + same_season_prequel_main_count(
+        session, related.id, seasons, visited
+    )
+
+
 def episode_number_candidates(session: Session, episode: Episode) -> dict[float, str]:
     candidates: dict[float, str] = {}
 
@@ -203,6 +232,9 @@ def episode_number_candidates(session: Session, episode: Episode) -> dict[float,
     offset = prequel_main_count(session, episode.subject_id)
     if offset and ordinal is not None:
         add(offset + ordinal, "按前作累计集数换算匹配")
+    season_offset = same_season_prequel_main_count(session, episode.subject_id)
+    if season_offset and ordinal is not None:
+        add(season_offset + ordinal, "按同季度前篇累计集数换算匹配")
     return candidates
 
 
@@ -231,6 +263,10 @@ def _episode_match(session: Session, subject_id: int, parsed: ParsedFilename) ->
     if parsed.season is not None or scope_number(parsed.normalized_title, "part") is not None:
         if 1 <= number <= len(ordered):
             return EpisodeMatch(ordered[number - 1], 2, "按季度内集数顺序匹配")
+        season_offset = same_season_prequel_main_count(session, subject_id)
+        local_number = number - season_offset
+        if season_offset > 0 and 1 <= local_number <= len(ordered):
+            return EpisodeMatch(ordered[local_number - 1], 2, "按同季度前篇累计集数换算匹配")
     # Unscoped releases may continue numbering across sequel subjects.
     offset = prequel_main_count(session, subject_id)
     local_number = number - offset

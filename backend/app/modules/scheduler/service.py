@@ -145,15 +145,15 @@ class SchedulerService:
 
     async def _run_loop(self) -> None:
         while not self._stopping:
+            latest_runs = self._latest_many(self._definitions)
             for definition in self._definitions.values():
-                if self._is_due(definition):
+                if self._is_due(definition, latest_runs.get(definition.name)):
                     await self.start_task(definition.name, trigger="SCHEDULED")
             await asyncio.sleep(get_settings().scheduler.tick_seconds)
 
-    def _is_due(self, definition: ScheduledTask) -> bool:
+    def _is_due(self, definition: ScheduledTask, latest: TaskRun | None) -> bool:
         if self._locks[definition.name].locked():
             return False
-        latest = self._latest(definition.name)
         if latest is None:
             return True
         now = datetime.now(UTC)
@@ -235,3 +235,17 @@ class SchedulerService:
             if status is not None:
                 query = query.where(TaskRun.status == status)
             return session.scalar(query.order_by(TaskRun.started_at.desc(), TaskRun.id.desc()).limit(1))
+
+    @staticmethod
+    def _latest_many(names) -> dict[str, TaskRun]:
+        with session_scope() as session:
+            return {
+                name: latest
+                for name in names
+                if (latest := session.scalar(
+                    select(TaskRun)
+                    .where(TaskRun.task_name == name)
+                    .order_by(TaskRun.started_at.desc(), TaskRun.id.desc())
+                    .limit(1)
+                )) is not None
+            }

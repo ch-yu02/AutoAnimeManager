@@ -163,6 +163,9 @@ async def test_native_playback_session_api_persists_progress(tmp_path: Path, mon
 
     assert created.status_code == 201
     assert created.json()["media_path"].endswith("episode.mkv")
+    assert created.json()["subject_title"] == "Anime"
+    assert created.json()["episode_display_number"] == "1"
+    assert created.json()["episode_title"] == "Episode"
     assert progress.status_code == 200
     assert progress.json()["position_seconds"] == 812.4
     assert progress.json()["next_episode_id"] is None

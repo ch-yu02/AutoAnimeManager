@@ -84,5 +84,7 @@ scheduler:
   library_scan_interval_seconds: 900
   demand_refresh_interval_seconds: 60
   download_monitor_interval_seconds: 3
+  # 没有活动下载任务时降频，创建新任务后会在下一次调度检查恢复高频同步。
+  download_monitor_idle_interval_seconds: 60
   failure_backoff_seconds: 30
   failure_backoff_max_seconds: 1800
