@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
-from sqlalchemy import select
+from sqlalchemy import exists, func, or_, select
 
 from backend.app.config import get_settings
 from backend.app.database.models import (
@@ -78,9 +78,68 @@ class CleanupService:
         return self._eligibility(subject_id, now=now).view()
 
     def candidates(self, *, now: datetime | None = None) -> list[dict[str, object]]:
+        current = now or datetime.now(UTC)
+        retention_cutoff = current - timedelta(days=get_settings().cleanup.retention_days)
+        main_episode = exists().where(
+            Episode.subject_id == Subject.id,
+            Episode.episode_type == "MAIN",
+        )
+        unwatched_episode = exists().where(
+            Episode.subject_id == Subject.id,
+            Episode.episode_type == "MAIN",
+            Episode.watched.is_(False),
+        )
+        incomplete_playback = exists(
+            select(Episode.id)
+            .outerjoin(PlaybackState, PlaybackState.episode_id == Episode.id)
+            .where(
+                Episode.subject_id == Subject.id,
+                Episode.episode_type == "MAIN",
+                or_(PlaybackState.id.is_(None), PlaybackState.completed_at.is_(None)),
+            )
+        )
+        recent_completion = exists(
+            select(Episode.id)
+            .join(PlaybackState, PlaybackState.episode_id == Episode.id)
+            .where(
+                Episode.subject_id == Subject.id,
+                Episode.episode_type == "MAIN",
+                PlaybackState.completed_at > retention_cutoff,
+            )
+        )
+        active_download = exists().where(
+            DownloadJob.subject_id == Subject.id,
+            DownloadJob.state.in_(ACTIVE_STATES),
+        )
+        unresolved_mapping = exists().where(
+            MediaFile.subject_id == Subject.id,
+            MediaFile.review_reason.is_not(None),
+        )
+        available_media = exists().where(
+            MediaFile.subject_id == Subject.id,
+            MediaFile.exists.is_(True),
+        )
         with session_scope() as session:
-            ids = list(session.scalars(select(Subject.id).order_by(Subject.id)))
-        return [view for subject_id in ids if (view := self.eligibility(subject_id, now=now))["eligible"]]
+            ids = list(session.scalars(
+                select(Subject.id)
+                .where(
+                    Subject.keep_forever.is_(False),
+                    func.upper(Subject.air_status).in_({"FINISHED", "ENDED", "完结", "已完结"}),
+                    main_episode,
+                    ~unwatched_episode,
+                    ~incomplete_playback,
+                    ~recent_completion,
+                    ~active_download,
+                    ~unresolved_mapping,
+                    available_media,
+                )
+                .order_by(Subject.id)
+            ))
+        return [
+            view
+            for subject_id in ids
+            if (view := self.eligibility(subject_id, now=current))["eligible"]
+        ]
 
     def records(self) -> list[dict[str, object]]:
         with session_scope() as session:

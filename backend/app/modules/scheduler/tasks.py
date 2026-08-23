@@ -8,13 +8,17 @@ from backend.app.database.session import session_scope
 
 
 class SchedulerTasks:
-    def __init__(self, bangumi_sync, library_scan, planner, release_search, download_service, cleanup=None) -> None:
+    def __init__(
+        self, bangumi_sync, library_scan, planner, release_search, download_service,
+        cleanup=None, maintenance=None,
+    ) -> None:
         self.bangumi_sync = bangumi_sync
         self.library_scan = library_scan
         self.planner = planner
         self.release_search = release_search
         self.download_service = download_service
         self.cleanup = cleanup
+        self.maintenance = maintenance
 
     async def bangumi(self) -> dict[str, object]:
         settings = get_settings().bangumi
@@ -63,3 +67,8 @@ class SchedulerTasks:
         if self.cleanup is None:
             return {"enabled": False, "quarantined": 0, "deleted": 0, "failed": 0}
         return await self.cleanup.run_automatic()
+
+    async def backup_database(self) -> dict[str, object]:
+        if self.maintenance is None or not get_settings().maintenance.backup_enabled:
+            return {"enabled": False, "created": False}
+        return self.maintenance.create_backup()

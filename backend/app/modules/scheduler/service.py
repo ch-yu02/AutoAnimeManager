@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Awaitable, Callable
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from backend.app.config import get_settings
 from backend.app.database.models import TaskRun
@@ -130,10 +130,14 @@ class SchedulerService:
         }
 
     def status(self) -> dict[str, object]:
+        latest_runs = self._latest_many(self._definitions)
         return {
             "enabled": get_settings().scheduler.enabled,
             "running": self._loop_task is not None and not self._loop_task.done(),
-            "tasks": [self._task_status(name) for name in self._definitions],
+            "tasks": [
+                self._task_status(name, latest_runs.get(name))
+                for name in self._definitions
+            ],
         }
 
     def history(self, limit: int = 50) -> list[dict[str, object]]:
@@ -165,8 +169,7 @@ class SchedulerService:
         baseline = self._aware(latest.finished_at or latest.started_at)
         return baseline + timedelta(seconds=definition.interval()) <= now
 
-    def _task_status(self, name: str) -> dict[str, object]:
-        latest = self._latest(name)
+    def _task_status(self, name: str, latest: TaskRun | None) -> dict[str, object]:
         return {
             "name": name,
             "interval_seconds": self._definitions[name].interval(),
@@ -238,14 +241,24 @@ class SchedulerService:
 
     @staticmethod
     def _latest_many(names) -> dict[str, TaskRun]:
+        task_names = list(names)
+        if not task_names:
+            return {}
         with session_scope() as session:
-            return {
-                name: latest
-                for name in names
-                if (latest := session.scalar(
-                    select(TaskRun)
-                    .where(TaskRun.task_name == name)
-                    .order_by(TaskRun.started_at.desc(), TaskRun.id.desc())
-                    .limit(1)
-                )) is not None
-            }
+            ranked = (
+                select(
+                    TaskRun.id.label("run_id"),
+                    func.row_number().over(
+                        partition_by=TaskRun.task_name,
+                        order_by=(TaskRun.started_at.desc(), TaskRun.id.desc()),
+                    ).label("position"),
+                )
+                .where(TaskRun.task_name.in_(task_names))
+                .subquery()
+            )
+            latest = session.scalars(
+                select(TaskRun)
+                .join(ranked, ranked.c.run_id == TaskRun.id)
+                .where(ranked.c.position == 1)
+            )
+            return {run.task_name: run for run in latest}

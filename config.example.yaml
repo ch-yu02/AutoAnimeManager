@@ -73,6 +73,15 @@ cleanup:
   # 自动清理每天执行一次；仍可在 Settings 中手动立即执行。
   interval_seconds: 86400
 
+maintenance:
+  # 每日创建经过 SQLite integrity_check 验证的在线备份。
+  backup_enabled: true
+  backup_interval_seconds: 86400
+  backup_keep_count: 7
+  backup_path: data/backups
+  diagnostics_path: data/diagnostics
+  diagnostics_log_lines: 500
+
 scheduler:
   enabled: true
   # 仅处理“在看”条目中已放送、未看、缺少本地文件的 MAIN 单集。

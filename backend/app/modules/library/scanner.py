@@ -107,8 +107,12 @@ class LibraryScanner:
     def __init__(self, settings_provider) -> None:
         self.settings_provider = settings_provider
 
-    def _discover(self, settings: AppSettings) -> list[Path]:
-        roots = [root.expanduser().resolve() for root in settings.storage.effective_library_roots()]
+    def _discover(self, settings: AppSettings, roots: list[Path] | None = None) -> list[Path]:
+        roots = roots or [
+            root.expanduser().resolve()
+            for root in settings.storage.effective_library_roots()
+            if root.expanduser().is_dir()
+        ]
         excluded = [settings.storage.quarantine_path.expanduser().resolve()]
         extensions = set(settings.storage.video_extensions)
         with session_scope() as session:
@@ -166,12 +170,19 @@ class LibraryScanner:
                 session.add(run)
         try:
             settings = self.settings_provider()
+            configured_roots = [
+                root.expanduser().resolve()
+                for root in settings.storage.effective_library_roots()
+            ]
+            available_roots = [root for root in configured_roots if root.is_dir()]
+            if not available_roots:
+                raise FileNotFoundError("所有媒体库目录当前均不可用，已保留现有媒体记录")
             with session_scope() as session:
                 for media in session.scalars(select(MediaFile).where(MediaFile.ignored.is_(True))):
                     if session.scalar(select(IgnoredMediaPath.id).where(IgnoredMediaPath.path == media.path)) is None:
                         session.add(IgnoredMediaPath(path=media.path))
                     delete_media_record(session, media)
-            paths = self._discover(settings)
+            paths = self._discover(settings, available_roots)
             allowed_extensions = set(settings.storage.video_extensions)
             seen: set[str] = set()
             with session_scope() as session:
@@ -277,13 +288,14 @@ class LibraryScanner:
                             run.matched_count += 1
                         elif media.review_reason:
                             run.review_count += 1
-                roots = [root.expanduser().resolve() for root in settings.storage.effective_library_roots()]
                 for media in existing:
                     try:
                         stored_path = Path(media.path).resolve()
                     except OSError:
                         continue
-                    if media.path not in seen and any(_inside(stored_path, root) for root in roots):
+                    if media.path not in seen and any(
+                        _inside(stored_path, root) for root in available_roots
+                    ):
                         delete_media_record(session, media)
                         run.missing_count += 1
                 refresh_primary_conflicts(session)

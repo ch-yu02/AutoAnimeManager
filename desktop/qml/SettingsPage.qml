@@ -122,6 +122,25 @@ Page {
             }
 
             SettingsSection {
+                title: "备份与诊断"
+                description: "数据库每天自动创建校验备份并保留最近 "
+                    + ((root.config.maintenance || {}).backup_keep_count || 7)
+                    + " 份；诊断包包含脱敏配置、近期日志和任务审计。"
+                RowLayout {
+                    AppButton {
+                        text: "立即备份"
+                        enabled: !(backend.activities.maintenanceRunning || false)
+                        onClicked: backend.createBackup()
+                    }
+                    AppButton {
+                        text: "生成诊断包"
+                        enabled: !(backend.activities.maintenanceRunning || false)
+                        onClicked: backend.createDiagnostics()
+                    }
+                }
+            }
+
+            SettingsSection {
                 title: "媒体目录"
                 description: "每行填写一个需要扫描的本地目录。"
                 TextArea { id: roots; Layout.fillWidth: true; Layout.preferredHeight: 104; placeholderText: "/media/…"; wrapMode: TextEdit.NoWrap }

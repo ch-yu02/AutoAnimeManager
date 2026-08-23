@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
@@ -42,53 +43,83 @@ def _json_list(value: str) -> list[object]:
         return []
 
 
-def _file_view(session, media: MediaFile) -> dict[str, object]:
-    subject = session.get(Subject, media.subject_id) if media.subject_id else None
-    mappings = session.execute(
-        select(EpisodeFile, Episode).join(Episode, Episode.id == EpisodeFile.episode_id).where(EpisodeFile.media_file_id == media.id)
-    )
-    try:
-        parsed = json.loads(media.parse_result)
-    except json.JSONDecodeError:
-        parsed = {}
-    subject_reasons = _json_list(media.subject_reasons)
-    hardlinks = list(session.scalars(
-        select(MediaFile.path).where(
-            MediaFile.id != media.id,
-            MediaFile.device_id == media.device_id,
-            MediaFile.inode == media.inode,
+def _file_views(session, media_items: list[MediaFile]) -> dict[int, dict[str, object]]:
+    """Build library payloads with a fixed number of queries for an entire page."""
+    if not media_items:
+        return {}
+
+    media_ids = [media.id for media in media_items]
+    subject_ids = {media.subject_id for media in media_items if media.subject_id is not None}
+    subjects = {
+        subject.id: subject
+        for subject in session.scalars(select(Subject).where(Subject.id.in_(subject_ids)))
+    } if subject_ids else {}
+
+    mappings: dict[int, list[tuple[EpisodeFile, Episode]]] = defaultdict(list)
+    for mapping, episode in session.execute(
+        select(EpisodeFile, Episode)
+        .join(Episode, Episode.id == EpisodeFile.episode_id)
+        .where(EpisodeFile.media_file_id.in_(media_ids))
+        .order_by(EpisodeFile.media_file_id, EpisodeFile.id)
+    ):
+        mappings[mapping.media_file_id].append((mapping, episode))
+
+    hardlinks: dict[tuple[int, int], list[tuple[int, str]]] = defaultdict(list)
+    for device_id, inode, media_id, path in session.execute(
+        select(MediaFile.device_id, MediaFile.inode, MediaFile.id, MediaFile.path).where(
+            MediaFile.device_id.is_not(None),
+            MediaFile.inode.is_not(None),
             MediaFile.exists.is_(True),
         )
-    )) if media.device_id is not None and media.inode is not None else []
-    return {
-        "id": media.id, "path": media.path, "filename": media.filename,
-        "file_size": media.file_size, "mtime_ns": media.mtime_ns,
-        "partial_hash": media.partial_hash, "full_hash": media.full_hash,
-        "hardlink_paths": hardlinks,
-        "duration_seconds": media.duration_seconds, "video_codec": media.video_codec,
-        "resolution": media.resolution, "exists": media.exists, "ignored": media.ignored,
-        "review_reason": media.review_reason, "parse_result": parsed,
-        "subject": ({
-            "id": subject.id,
-            "name": subject.name_cn or subject.name,
-            "image_url": subject.image_url,
-        } if subject else None),
-        "created_at": media.created_at,
-        "subject_mapping_source": media.subject_mapping_source,
-        "subject_confidence": media.subject_confidence,
-        "subject_reasons": subject_reasons,
-        "locked": media.subject_manually_locked,
-        "episodes": [
-            {
-                "id": episode.id, "display_number": episode.display_number,
-                "type": episode.episode_type, "name": episode.name_cn or episode.name,
-                "source": mapping.mapping_source, "confidence": mapping.confidence,
-                "primary": mapping.is_primary, "locked": mapping.manually_locked,
-                "reasons": _json_list(mapping.reasons),
-            }
-            for mapping, episode in mappings
-        ],
-    }
+    ):
+        hardlinks[(device_id, inode)].append((media_id, path))
+
+    result: dict[int, dict[str, object]] = {}
+    for media in media_items:
+        subject = subjects.get(media.subject_id)
+        try:
+            parsed = json.loads(media.parse_result)
+        except json.JSONDecodeError:
+            parsed = {}
+        key = (media.device_id, media.inode)
+        linked_paths = (
+            [path for media_id, path in hardlinks.get(key, []) if media_id != media.id]
+            if media.device_id is not None and media.inode is not None else []
+        )
+        result[media.id] = {
+            "id": media.id, "path": media.path, "filename": media.filename,
+            "file_size": media.file_size, "mtime_ns": media.mtime_ns,
+            "partial_hash": media.partial_hash, "full_hash": media.full_hash,
+            "hardlink_paths": linked_paths,
+            "duration_seconds": media.duration_seconds, "video_codec": media.video_codec,
+            "resolution": media.resolution, "exists": media.exists, "ignored": media.ignored,
+            "review_reason": media.review_reason, "parse_result": parsed,
+            "subject": ({
+                "id": subject.id,
+                "name": subject.name_cn or subject.name,
+                "image_url": subject.image_url,
+            } if subject else None),
+            "created_at": media.created_at,
+            "subject_mapping_source": media.subject_mapping_source,
+            "subject_confidence": media.subject_confidence,
+            "subject_reasons": _json_list(media.subject_reasons),
+            "locked": media.subject_manually_locked,
+            "episodes": [
+                {
+                    "id": episode.id, "display_number": episode.display_number,
+                    "type": episode.episode_type, "name": episode.name_cn or episode.name,
+                    "source": mapping.mapping_source, "confidence": mapping.confidence,
+                    "primary": mapping.is_primary, "locked": mapping.manually_locked,
+                    "reasons": _json_list(mapping.reasons),
+                }
+                for mapping, episode in mappings.get(media.id, [])
+            ],
+        }
+    return result
+
+
+def _file_view(session, media: MediaFile) -> dict[str, object]:
+    return _file_views(session, [media])[media.id]
 
 
 @router.post("/scan", status_code=status.HTTP_202_ACCEPTED)
@@ -118,7 +149,9 @@ async def list_files(
             query = query.where(MediaFile.ignored.is_(ignored))
         if exists is not None:
             query = query.where(MediaFile.exists.is_(exists))
-        return [_file_view(session, media) for media in session.scalars(query)]
+        media_items = list(session.scalars(query))
+        views = _file_views(session, media_items)
+        return [views[media.id] for media in media_items]
 
 
 @router.get("/recent")
@@ -130,21 +163,24 @@ async def recent_files(limit: int = Query(default=12, ge=1, le=50)) -> list[dict
             .order_by(MediaFile.created_at.desc(), MediaFile.id.desc())
             .limit(limit)
         )
-        return [_file_view(session, media) for media in session.scalars(query)]
+        media_items = list(session.scalars(query))
+        views = _file_views(session, media_items)
+        return [views[media.id] for media in media_items]
 
 
 @router.get("/review")
 async def review_queue() -> dict[str, list[dict[str, object]]]:
     with session_scope() as session:
         media = list(session.scalars(select(MediaFile).order_by(MediaFile.path)))
+        views = _file_views(session, media)
         return {
-            "needs_review": [_file_view(session, item) for item in media if item.review_reason and not item.ignored],
-            "automatic": [_file_view(session, item) for item in media if item.subject_mapping_source not in (None, "MANUAL")],
-            "manually_linked": [_file_view(session, item) for item in media if item.subject_mapping_source == "MANUAL"],
-            "duplicates": [_file_view(session, item) for item in media if item.review_reason in ("PRIMARY_FILE_CONFLICT", "HARDLINK_DUPLICATE")],
-            "locked": [_file_view(session, item) for item in media if item.subject_manually_locked],
-            "ignored": [_file_view(session, item) for item in media if item.ignored],
-            "missing": [_file_view(session, item) for item in media if not item.exists],
+            "needs_review": [views[item.id] for item in media if item.review_reason and not item.ignored],
+            "automatic": [views[item.id] for item in media if item.subject_mapping_source not in (None, "MANUAL")],
+            "manually_linked": [views[item.id] for item in media if item.subject_mapping_source == "MANUAL"],
+            "duplicates": [views[item.id] for item in media if item.review_reason in ("PRIMARY_FILE_CONFLICT", "HARDLINK_DUPLICATE")],
+            "locked": [views[item.id] for item in media if item.subject_manually_locked],
+            "ignored": [views[item.id] for item in media if item.ignored],
+            "missing": [views[item.id] for item in media if not item.exists],
         }
 
 

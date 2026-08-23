@@ -328,24 +328,38 @@ async def list_episodes(subject_id: int) -> list[EpisodeView]:
                 .order_by(Episode.episode_type != "MAIN", Episode.sort_number, Episode.id)
             )
         )
-        result = []
-        for episode in episodes:
-            files = session.execute(
+        episode_ids = [episode.id for episode in episodes]
+        files_by_episode: dict[int, list[dict[str, object]]] = {
+            episode_id: [] for episode_id in episode_ids
+        }
+        if episode_ids:
+            for mapping, media in session.execute(
                 select(EpisodeFile, MediaFile)
                 .join(MediaFile, MediaFile.id == EpisodeFile.media_file_id)
-                .where(EpisodeFile.episode_id == episode.id)
-                .order_by(EpisodeFile.is_primary.desc(), MediaFile.path)
+                .where(EpisodeFile.episode_id.in_(episode_ids))
+                .order_by(
+                    EpisodeFile.episode_id,
+                    EpisodeFile.is_primary.desc(),
+                    MediaFile.path,
+                )
+            ):
+                files_by_episode[mapping.episode_id].append({
+                    "id": media.id, "path": media.path, "exists": media.exists,
+                    "primary": mapping.is_primary, "locked": mapping.manually_locked,
+                })
+        playback_by_episode = {
+            playback.episode_id: playback
+            for playback in session.scalars(
+                select(PlaybackState).where(PlaybackState.episode_id.in_(episode_ids))
             )
+        } if episode_ids else {}
+        result = []
+        for episode in episodes:
+            playback = playback_by_episode.get(episode.id)
             result.append(
                 EpisodeView(
                     **EpisodeView.model_validate(episode).model_dump(exclude={"media_files", "playback"}),
-                    media_files=[
-                        {
-                            "id": media.id, "path": media.path, "exists": media.exists,
-                            "primary": mapping.is_primary, "locked": mapping.manually_locked,
-                        }
-                        for mapping, media in files
-                    ],
+                    media_files=files_by_episode[episode.id],
                     playback=(
                         {
                             "position_seconds": playback.position_seconds,
@@ -355,9 +369,7 @@ async def list_episodes(subject_id: int) -> list[EpisodeView]:
                             "watched_source": playback.watched_source,
                             "last_played_at": playback.last_played_at,
                         }
-                        if (playback := session.scalar(
-                            select(PlaybackState).where(PlaybackState.episode_id == episode.id)
-                        )) else None
+                        if playback else None
                     ),
                 )
             )

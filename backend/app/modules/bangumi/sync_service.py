@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Awaitable, Callable
 
-from sqlalchemy import delete, exists, select
+from sqlalchemy import delete, select
 
 from backend.app.config import BangumiConfig, get_settings
 from backend.app.database.models.episode import Episode
@@ -252,6 +252,11 @@ class BangumiSyncService:
             existing_subjects = list(session.scalars(
                 select(Subject).where(Subject.collection_type.is_not(None))
             ))
+            subject_ids_with_episodes = set(session.scalars(
+                select(Episode.subject_id)
+                .where(Episode.subject_id.in_([subject.id for subject in existing_subjects]))
+                .distinct()
+            )) if existing_subjects else set()
             by_bangumi_id = {subject.bangumi_subject_id: subject for subject in existing_subjects}
             for subject in existing_subjects:
                 collection = remote.get(subject.bangumi_subject_id)
@@ -277,7 +282,7 @@ class BangumiSyncService:
                 relations_due = self._expired(
                     subject.relations_synced_at, settings.relations_refresh_hours, now
                 )
-                has_episodes = session.scalar(select(exists().where(Episode.subject_id == subject.id)))
+                has_episodes = subject.id in subject_ids_with_episodes
                 refresh_episodes = (
                     mode == "QUICK"
                     or collection.collection_type == "DOING"

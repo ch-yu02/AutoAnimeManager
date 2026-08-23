@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.21)
 
 project(AutoAnimeDesktopProbe VERSION 0.1.0 LANGUAGES CXX)
 
+include(GNUInstallDirs)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -42,6 +44,8 @@ qt_add_executable(autoanime-desktop
     src/main_qml.cpp
     src/backend/BackendClient.cpp
     src/backend/BackendClient.h
+    src/backend/BackendSupervisor.cpp
+    src/backend/BackendSupervisor.h
     src/player/PlayerController.cpp
     src/player/PlayerController.h
     src/system/SleepInhibitor.cpp
@@ -68,6 +72,7 @@ qt_add_qml_module(autoanime-desktop
     VERSION 1.0
     QML_FILES
         qml/Main.qml
+        qml/StartupError.qml
         qml/HomePage.qml
         qml/SubjectsPage.qml
         qml/SubjectDetailPage.qml
@@ -190,3 +195,59 @@ if(BUILD_TESTING)
         COMMAND autoanime-qml-backend-activity-tests
     )
 endif()
+
+# Ubuntu is the first supported release platform. The package keeps qBittorrent
+# external, but carries the backend source, migrations and the repository venv
+# so launching the desktop entry does not require uvicorn/cmake/terminal setup.
+set(AUTOANIME_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
+install(TARGETS autoanime-desktop RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(
+    DIRECTORY "${AUTOANIME_ROOT}/backend"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/autoanime"
+    PATTERN "__pycache__" EXCLUDE
+    PATTERN "*.pyc" EXCLUDE
+)
+install(
+    DIRECTORY "${AUTOANIME_ROOT}/scripts"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/autoanime"
+    FILES_MATCHING PATTERN "*.py"
+)
+install(
+    FILES
+        "${AUTOANIME_ROOT}/alembic.ini"
+        "${AUTOANIME_ROOT}/config.example.yaml"
+        "${AUTOANIME_ROOT}/pyproject.toml"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/autoanime"
+)
+if(EXISTS "${AUTOANIME_ROOT}/.venv/bin/python3")
+    install(
+        DIRECTORY "${AUTOANIME_ROOT}/.venv/"
+        DESTINATION "${CMAKE_INSTALL_LIBDIR}/autoanime/venv"
+        PATTERN "__pycache__" EXCLUDE
+        PATTERN "*.pyc" EXCLUDE
+        PATTERN "*.pyo" EXCLUDE
+    )
+else()
+    message(WARNING "Repository .venv not found; the package will require AUTOANIME_PYTHON")
+endif()
+install(
+    FILES packaging/autoanime.desktop
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/applications"
+)
+install(
+    FILES qml/icons/library-big.svg
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps"
+    RENAME autoanime.svg
+)
+
+set(CPACK_PACKAGE_NAME "AutoAnime")
+set(CPACK_PACKAGE_VENDOR "AutoAnime")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "本地动画媒体库与自动追番客户端")
+set(CPACK_PACKAGE_VERSION "0.2.0")
+set(CPACK_PACKAGE_CONTACT "ch-yu02")
+set(CPACK_RESOURCE_FILE_LICENSE "${AUTOANIME_ROOT}/desktop/THIRD_PARTY_NOTICES.md")
+set(CPACK_GENERATOR "DEB;TGZ")
+set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "python3 (>= 3.12), libmpv2, ffmpeg, qml6-module-qtqml, qml6-module-qtqml-workerscript, qml6-module-qtquick, qml6-module-qtquick-window, qml6-module-qtquick-templates, qml6-module-qtquick-controls, qml6-module-qtquick-layouts, qml6-module-qtquick-dialogs")
+include(CPack)

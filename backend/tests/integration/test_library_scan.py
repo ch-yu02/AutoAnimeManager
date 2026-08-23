@@ -87,6 +87,29 @@ def test_scan_matches_moves_and_deletes_missing_file_record(tmp_path: Path, monk
     _reset_caches()
 
 
+def test_unmounted_library_root_preserves_existing_media_records(
+    tmp_path: Path, monkeypatch
+) -> None:
+    library, scanner = _setup(tmp_path, monkeypatch)
+    _metadata()
+    video = library / "Test Anime S01E01.mkv"
+    video.write_bytes(b"video-content")
+    scanner.scan()
+    with session_scope() as session:
+        media_id = session.scalar(select(MediaFile.id))
+
+    unavailable = tmp_path / "library-unmounted"
+    library.rename(unavailable)
+    task_id = scanner.scan()
+
+    with session_scope() as session:
+        assert session.get(MediaFile, media_id) is not None
+        run = session.get(LibraryScanRun, task_id)
+        assert run is not None and run.status == "FAILED"
+        assert "保留现有媒体记录" in (run.error_summary or "")
+    _reset_caches()
+
+
 def test_manifest_mapping_and_manual_lock_survive_rescan(tmp_path: Path, monkeypatch) -> None:
     library, scanner = _setup(tmp_path, monkeypatch)
     subject_id, episode_id = _metadata()

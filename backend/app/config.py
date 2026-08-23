@@ -113,6 +113,15 @@ class CleanupConfig(BaseModel):
     interval_seconds: float = Field(default=86400.0, ge=30, le=86400)
 
 
+class MaintenanceConfig(BaseModel):
+    backup_enabled: bool = True
+    backup_interval_seconds: float = Field(default=86400.0, ge=300, le=604800)
+    backup_keep_count: int = Field(default=7, ge=1, le=90)
+    backup_path: Path = Path("data/backups")
+    diagnostics_path: Path = Path("data/diagnostics")
+    diagnostics_log_lines: int = Field(default=500, ge=50, le=5000)
+
+
 class SchedulerConfig(BaseModel):
     enabled: bool = True
     auto_download_enabled: bool = False
@@ -136,6 +145,7 @@ class AppSettings(BaseSettings):
     player: PlayerConfig = PlayerConfig()
     storage: StorageConfig = StorageConfig()
     cleanup: CleanupConfig = CleanupConfig()
+    maintenance: MaintenanceConfig = MaintenanceConfig()
     scheduler: SchedulerConfig = SchedulerConfig()
 
     model_config = SettingsConfigDict(
@@ -187,14 +197,20 @@ def public_settings(settings: AppSettings) -> dict[str, Any]:
     return data
 
 
+def ensure_database_directory(settings: AppSettings) -> None:
+    database_file = Path(settings.database.url.removeprefix("sqlite:///"))
+    database_file.expanduser().parent.mkdir(parents=True, exist_ok=True)
+
+
 def ensure_runtime_directories(settings: AppSettings) -> None:
+    database_file = Path(settings.database.url.removeprefix("sqlite:///"))
     paths = [
-        Path("data/database"),
+        database_file.expanduser().parent,
         Path("data/cache"),
         Path("data/logs"),
-        Path("data/backups"),
+        settings.maintenance.backup_path,
+        settings.maintenance.diagnostics_path,
         settings.storage.quarantine_path,
-        *settings.storage.effective_library_roots(),
     ]
     for path in paths:
         path.mkdir(parents=True, exist_ok=True)

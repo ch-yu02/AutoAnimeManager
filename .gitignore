@@ -8,12 +8,14 @@ node_modules/
 frontend/dist/
 frontend/*.tsbuildinfo
 desktop/build*/
+desktop/dist/
 config.yaml
 .env
 data/database/*.db*
 data/logs/*.log*
 data/cache/*
 data/backups/*
+data/diagnostics/*
 data/downloads/*
 data/library/*
 data/quarantine/*

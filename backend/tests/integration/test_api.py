@@ -1,4 +1,5 @@
 from pathlib import Path
+import asyncio
 import sqlite3
 
 import httpx
@@ -54,10 +55,68 @@ async def test_health_and_redacted_settings(tmp_path: Path, monkeypatch) -> None
     assert "must-not-leak" not in settings.text
     assert scheduler.status_code == 200
     assert {task["name"] for task in scheduler.json()["tasks"]} == {
-        "BangumiSync", "LibraryScan", "DemandRefresh", "ReleaseSearch", "DownloadMonitor", "Cleanup",
+        "BangumiSync", "LibraryScan", "DemandRefresh", "ReleaseSearch", "DownloadMonitor",
+        "Cleanup", "Backup",
     }
     with sqlite3.connect(tmp_path / "test.db") as connection:
         assert connection.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
+    _reset_caches()
+
+
+@pytest.mark.anyio
+async def test_backup_and_diagnostics_are_verified_and_redacted(
+    tmp_path: Path, monkeypatch
+) -> None:
+    database = tmp_path / "test.db"
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "bangumi:\n  access_token: never-export-this\n"
+        "qbittorrent:\n  password: also-secret\n"
+        "maintenance:\n"
+        f"  backup_path: {tmp_path / 'backups'}\n"
+        f"  diagnostics_path: {tmp_path / 'diagnostics'}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AUTOANIME_CONFIG", str(config))
+    monkeypatch.setenv("AUTOANIME_DATABASE__URL", f"sqlite:///{database}")
+    monkeypatch.setenv("AUTOANIME_SCHEDULER__ENABLED", "false")
+    _reset_caches()
+    _migrate()
+
+    app = create_app()
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            backup = await asyncio.wait_for(
+                client.post("/api/maintenance/backup"), timeout=10
+            )
+            diagnostics = await asyncio.wait_for(
+                client.post("/api/maintenance/diagnostics"), timeout=10
+            )
+
+    assert backup.status_code == 200
+    assert backup.json()["verified"] is True
+    backup_path = Path(backup.json()["path"])
+    assert backup_path.is_file()
+    with sqlite3.connect(backup_path) as connection:
+        assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+
+    assert diagnostics.status_code == 200
+    diagnostic_path = Path(diagnostics.json()["path"])
+    assert diagnostic_path.is_file()
+    import zipfile
+    with zipfile.ZipFile(diagnostic_path) as archive:
+        settings_text = archive.read("settings.redacted.json").decode("utf-8")
+        assert "never-export-this" not in settings_text
+        assert "also-secret" not in settings_text
+        assert '"access_token": "***"' in settings_text
+        assert '"password": "***"' in settings_text
+        assert archive.read("summary.json")
+        assert archive.read("task-runs.json")
+        assert archive.read("download-import-audit.json")
+        assert archive.read("cleanup-audit.json")
     _reset_caches()
 
 

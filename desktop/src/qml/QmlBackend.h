@@ -72,6 +72,8 @@ public:
     Q_INVOKABLE void loadSettings();
     Q_INVOKABLE void loadScheduler();
     Q_INVOKABLE void runSchedulerTask(const QString &taskName);
+    Q_INVOKABLE void createBackup();
+    Q_INVOKABLE void createDiagnostics();
     Q_INVOKABLE void loadCleanup(qint64 subjectId);
     Q_INVOKABLE void loadCleanupRecords();
     Q_INVOKABLE void setSubjectKeepForever(qint64 subjectId, bool keepForever);

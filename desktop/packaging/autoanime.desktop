@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=AutoAnime
+Comment=本地动画媒体库与自动追番客户端
+Exec=autoanime-desktop
+Icon=autoanime
+Terminal=false
+Categories=AudioVideo;Video;Player;
+StartupNotify=true

@@ -20,6 +20,7 @@ from backend.app.api.downloads import router as downloads_router
 from backend.app.api.releases import router as releases_router
 from backend.app.api.scheduler import router as scheduler_router
 from backend.app.api.cleanup import router as cleanup_router
+from backend.app.api.maintenance import router as maintenance_router
 from backend.app.config import ensure_runtime_directories, get_settings
 from backend.app.database.session import check_database
 from backend.app.logging import configure_logging
@@ -39,6 +40,7 @@ from backend.app.modules.download import DownloadService
 from backend.app.modules.release import ReleaseSearchService
 from backend.app.modules.release.providers import KissSubRSSProvider
 from backend.app.modules.cleanup import CleanupService
+from backend.app.modules.maintenance import MaintenanceService
 
 
 @asynccontextmanager
@@ -61,6 +63,7 @@ async def lifespan(app: FastAPI):
     app.state.cleanup_service = CleanupService(
         app.state.playback_session_service.active_media_file_ids
     )
+    app.state.maintenance_service = MaintenanceService()
     download_service = DownloadService()
     app.state.download_service = download_service
     app.state.release_search_service = ReleaseSearchService(
@@ -77,6 +80,7 @@ async def lifespan(app: FastAPI):
         app.state.auto_download_scheduler,
         download_service,
         app.state.cleanup_service,
+        app.state.maintenance_service,
     )
     scheduler = SchedulerService()
     scheduler.register(
@@ -102,6 +106,11 @@ async def lifespan(app: FastAPI):
     )
     scheduler.register(
         "Cleanup", lambda: get_settings().cleanup.interval_seconds, tasks.cleanup_files
+    )
+    scheduler.register(
+        "Backup",
+        lambda: get_settings().maintenance.backup_interval_seconds,
+        tasks.backup_database,
     )
     app.state.scheduler = scheduler
     if check_database()[0]:
@@ -136,6 +145,7 @@ def create_app() -> FastAPI:
     app.include_router(releases_router, prefix="/api")
     app.include_router(scheduler_router, prefix="/api")
     app.include_router(cleanup_router, prefix="/api")
+    app.include_router(maintenance_router, prefix="/api")
 
     frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 

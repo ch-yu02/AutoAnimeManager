@@ -1,4 +1,5 @@
 #include "backend/BackendClient.h"
+#include "backend/BackendSupervisor.h"
 #include "player/MpvCore.h"
 #include "player/MpvVideoItem.h"
 #include "player/PlayerController.h"
@@ -57,14 +58,52 @@ int main(int argc, char *argv[])
         QStringLiteral("启动后直接播放指定 Episode（用于性能基线和验收）"),
         QStringLiteral("id")
     );
+    QCommandLineOption externalBackendOption(
+        QStringList{QStringLiteral("external-backend")},
+        QStringLiteral("只连接外部启动的 FastAPI，不由客户端管理后端进程")
+    );
+    QCommandLineOption supervisorSmokeTestOption(
+        QStringList{QStringLiteral("supervisor-smoke-test")},
+        QStringLiteral("验证 backend 启停后立即退出（发布验收）")
+    );
     parser.addOption(backendOption);
     parser.addOption(playEpisodeOption);
+    parser.addOption(externalBackendOption);
+    parser.addOption(supervisorSmokeTestOption);
     parser.process(application);
+
+    if (parser.isSet(supervisorSmokeTestOption)) {
+        qputenv("AUTOANIME_SCHEDULER__ENABLED", "false");
+    }
 
     const QUrl backendUrl(parser.value(backendOption));
     if (!backendUrl.isValid()) {
         qCritical("FastAPI 地址无效");
         return 2;
+    }
+
+    qmlRegisterType<autoanime::MpvVideoItem>("AutoAnime", 1, 0, "MpvVideoItem");
+    qmlRegisterType<autoanime::RoundedCornerMaskItem>("AutoAnime", 1, 0, "RoundedCornerMaskItem");
+
+    autoanime::BackendSupervisor supervisor(
+        backendUrl,
+        !parser.isSet(externalBackendOption)
+    );
+    QString backendError;
+    if (!supervisor.ensureReady(&backendError)) {
+        qCritical("AutoAnime backend 启动失败：%s", qUtf8Printable(backendError));
+        QQmlApplicationEngine errorEngine;
+        errorEngine.addImportPath(QStringLiteral("qrc:/"));
+        errorEngine.rootContext()->setContextProperty(QStringLiteral("startupError"), backendError);
+        errorEngine.load(QUrl(QStringLiteral("qrc:/AutoAnime/qml/StartupError.qml")));
+        if (!errorEngine.rootObjects().isEmpty()) {
+            application.exec();
+        }
+        return 3;
+    }
+    if (parser.isSet(supervisorSmokeTestOption)) {
+        supervisor.stop();
+        return 0;
     }
 
     try {
@@ -86,9 +125,8 @@ int main(int argc, char *argv[])
             qInfo("libmpv diagnostics: hwdec=%s dropped_frames=%lld", qUtf8Printable(hwdec), static_cast<long long>(dropped));
         });
 
-        qmlRegisterType<autoanime::MpvVideoItem>("AutoAnime", 1, 0, "MpvVideoItem");
-        qmlRegisterType<autoanime::RoundedCornerMaskItem>("AutoAnime", 1, 0, "RoundedCornerMaskItem");
         QQmlApplicationEngine engine;
+        engine.addImportPath(QStringLiteral("qrc:/"));
         engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
         engine.rootContext()->setContextProperty(QStringLiteral("player"), &player);
         engine.rootContext()->setContextProperty(QStringLiteral("preferences"), &preferences);
@@ -97,6 +135,7 @@ int main(int argc, char *argv[])
             parser.value(playEpisodeOption).toLongLong()
         );
         QObject::connect(&application, &QCoreApplication::aboutToQuit, &controller, &autoanime::PlayerController::shutdown);
+        QObject::connect(&application, &QCoreApplication::aboutToQuit, &supervisor, &autoanime::BackendSupervisor::stop);
         engine.load(QUrl(QStringLiteral("qrc:/AutoAnime/qml/Main.qml")));
         if (engine.rootObjects().isEmpty()) {
             return 1;

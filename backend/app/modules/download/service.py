@@ -172,7 +172,7 @@ class DownloadService:
     def list(self) -> list[dict[str, object]]:
         with session_scope() as session:
             jobs = list(session.scalars(select(DownloadJob).order_by(DownloadJob.created_at.desc())))
-            return [self._view(session, job) for job in jobs]
+            return self._views(session, jobs)
 
     def has_active_jobs(self) -> bool:
         with session_scope() as session:
@@ -189,44 +189,60 @@ class DownloadService:
 
     @staticmethod
     def _view(session, job: DownloadJob) -> dict[str, object]:
-        subject = session.get(Subject, job.subject_id)
-        episodes = list(
-            session.scalars(
-                select(Episode)
-                .join(DownloadJobEpisode, DownloadJobEpisode.episode_id == Episode.id)
-                .where(DownloadJobEpisode.job_id == job.id)
-                .order_by(Episode.sort_number, Episode.id)
-            )
-        )
-        return {
-            "id": job.id,
-            "torrent_hash": job.torrent_hash,
-            "magnet_hash": job.magnet_hash,
-            "subject_id": job.subject_id,
-            "subject": {
-                "id": subject.id,
-                "name": subject.name_cn or subject.name,
-                "bangumi_subject_id": subject.bangumi_subject_id,
-            } if subject else None,
-            "episode_ids": [episode.id for episode in episodes],
-            "episodes": [
-                {
-                    "id": episode.id,
-                    "display_number": episode.display_number,
-                    "name": episode.name_cn or episode.name,
-                }
-                for episode in episodes
-            ],
-            "qbittorrent_task": job.qbittorrent_task,
-            "progress": job.progress,
-            "state": job.state,
-            "error": job.error,
-            "save_path": job.save_path,
-            "created_at": job.created_at,
-            "updated_at": job.updated_at,
-            "completed_at": job.completed_at,
-            "imported_at": job.imported_at,
+        return DownloadService._views(session, [job])[0]
+
+    @staticmethod
+    def _views(session, jobs: list[DownloadJob]) -> list[dict[str, object]]:
+        if not jobs:
+            return []
+        subject_ids = {job.subject_id for job in jobs}
+        subjects = {
+            subject.id: subject
+            for subject in session.scalars(select(Subject).where(Subject.id.in_(subject_ids)))
         }
+        episodes_by_job: dict[str, list[Episode]] = {job.id: [] for job in jobs}
+        for job_id, episode in session.execute(
+            select(DownloadJobEpisode.job_id, Episode)
+            .join(Episode, DownloadJobEpisode.episode_id == Episode.id)
+            .where(DownloadJobEpisode.job_id.in_(episodes_by_job))
+            .order_by(DownloadJobEpisode.job_id, Episode.sort_number, Episode.id)
+        ):
+            episodes_by_job[job_id].append(episode)
+
+        result = []
+        for job in jobs:
+            subject = subjects.get(job.subject_id)
+            episodes = episodes_by_job[job.id]
+            result.append({
+                "id": job.id,
+                "torrent_hash": job.torrent_hash,
+                "magnet_hash": job.magnet_hash,
+                "subject_id": job.subject_id,
+                "subject": {
+                    "id": subject.id,
+                    "name": subject.name_cn or subject.name,
+                    "bangumi_subject_id": subject.bangumi_subject_id,
+                } if subject else None,
+                "episode_ids": [episode.id for episode in episodes],
+                "episodes": [
+                    {
+                        "id": episode.id,
+                        "display_number": episode.display_number,
+                        "name": episode.name_cn or episode.name,
+                    }
+                    for episode in episodes
+                ],
+                "qbittorrent_task": job.qbittorrent_task,
+                "progress": job.progress,
+                "state": job.state,
+                "error": job.error,
+                "save_path": job.save_path,
+                "created_at": job.created_at,
+                "updated_at": job.updated_at,
+                "completed_at": job.completed_at,
+                "imported_at": job.imported_at,
+            })
+        return result
 
     async def reconcile_all(self) -> dict[str, int]:
         with session_scope() as session:

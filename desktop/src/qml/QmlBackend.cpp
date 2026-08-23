@@ -296,6 +296,33 @@ void QmlBackend::runSchedulerTask(const QString &taskName)
         }, QStringLiteral("schedulerTaskStarting"));
 }
 
+void QmlBackend::createBackup()
+{
+    if (m_activityPending.value(QStringLiteral("maintenanceRunning")) > 0) {
+        return;
+    }
+    send("POST", QStringLiteral("api/maintenance/backup"), {}, [this](const QVariant &value) {
+        const QVariantMap result = value.toMap();
+        setNotice(QStringLiteral("数据库备份已验证：%1").arg(
+            result.value(QStringLiteral("path")).toString()
+        ));
+        loadScheduler();
+    }, QStringLiteral("maintenanceRunning"));
+}
+
+void QmlBackend::createDiagnostics()
+{
+    if (m_activityPending.value(QStringLiteral("maintenanceRunning")) > 0) {
+        return;
+    }
+    send("POST", QStringLiteral("api/maintenance/diagnostics"), {}, [this](const QVariant &value) {
+        const QVariantMap result = value.toMap();
+        setNotice(QStringLiteral("脱敏诊断包已生成：%1").arg(
+            result.value(QStringLiteral("path")).toString()
+        ));
+    }, QStringLiteral("maintenanceRunning"));
+}
+
 void QmlBackend::loadCleanup(qint64 subjectId)
 {
     send("GET", QStringLiteral("api/cleanup/subjects/%1").arg(subjectId), {},
