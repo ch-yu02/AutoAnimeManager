@@ -102,8 +102,7 @@ class PlaybackSessionService:
             ended=ended,
         )
         if state["watched"] and not session.writeback_sent:
-            session.writeback_sent = True
-            await self._writeback(session.episode_id, True)
+            session.writeback_sent = await self._writeback(session.episode_id, True)
         next_item = self.state_service.next_playable(session.episode_id) if ended else None
         return {
             "session_id": session_id,
@@ -143,14 +142,16 @@ class PlaybackSessionService:
             raise LookupError("playback_session_not_found")
         return session
 
-    async def _writeback(self, episode_id: int, watched: bool) -> None:
+    async def _writeback(self, episode_id: int, watched: bool) -> bool:
         if (
             self.settings_provider is None
             or self.writeback is None
             or not self.settings_provider().bangumi_writeback_enabled
         ):
-            return
+            return True
         try:
             await self.writeback(episode_id, watched)
+            return True
         except Exception:
             logger.exception("Bangumi 观看状态回写失败", extra={"episode_id": episode_id})
+            return False

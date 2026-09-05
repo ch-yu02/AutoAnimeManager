@@ -4,6 +4,7 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QNetworkAccessManager>
+#include <QNetworkProxy>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QUrl>
@@ -17,6 +18,8 @@ BackendClient::BackendClient(QUrl baseUrl, QObject *parent)
     , m_network(new QNetworkAccessManager(this))
     , m_baseUrl(std::move(baseUrl))
 {
+    // This manager only talks to the loopback FastAPI process.
+    m_network->setProxy(QNetworkProxy::NoProxy);
     if (!m_baseUrl.path().endsWith(QLatin1Char('/'))) {
         m_baseUrl.setPath(m_baseUrl.path() + QLatin1Char('/'));
     }
@@ -49,13 +52,13 @@ void BackendClient::createPlaybackSession(qint64 episodeId, bool fromStart, quin
     connect(reply, &QNetworkReply::finished, this, [this, reply, requestId] {
         const QByteArray payload = reply->readAll();
         if (reply->error() != QNetworkReply::NoError) {
-            handleError(requestId, QStringLiteral("创建播放会话"), reply, payload);
+            handleError(requestId, QStringLiteral("准备播放"), reply, payload);
             reply->deleteLater();
             return;
         }
         const QJsonObject object = QJsonDocument::fromJson(payload).object();
         if (!object.contains(QStringLiteral("session_id")) || !object.contains(QStringLiteral("media_path"))) {
-            emit requestFailed(requestId, QStringLiteral("创建播放会话"), QStringLiteral("后端返回的播放会话不完整"));
+            emit requestFailed(requestId, QStringLiteral("准备播放"), QStringLiteral("没有获取到完整的播放信息"));
         } else {
             const QJsonValue duration = object.value(QStringLiteral("duration_seconds"));
             emit sessionCreated(
@@ -120,7 +123,7 @@ void BackendClient::closePlaybackSession(const QString &sessionId)
     );
     connect(reply, &QNetworkReply::finished, this, [this, reply] {
         if (reply->error() != QNetworkReply::NoError && reply->error() != QNetworkReply::ContentNotFoundError) {
-            handleError(0, QStringLiteral("关闭播放会话"), reply, reply->readAll());
+            handleError(0, QStringLiteral("退出播放"), reply, reply->readAll());
         }
         reply->deleteLater();
     });

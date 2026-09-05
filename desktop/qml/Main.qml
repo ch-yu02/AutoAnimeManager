@@ -141,7 +141,7 @@ ApplicationWindow {
                 Item { Layout.fillHeight: true }
                 AppButton { Layout.fillWidth: true; text: "设置"; iconName: "settings"; variant: "ghost"; animateBackground: false; selected: window.currentRoot === "settings"; onClicked: window.openSettings() }
                 Label {
-                    text: backend.status.version ? "Core " + backend.status.version : "本地原生客户端"
+                    text: backend.status.version ? "版本 " + backend.status.version : "AutoAnime"
                     color: Theme.textDisabled
                     font.pixelSize: Typography.micro
                     Layout.leftMargin: Metrics.space3
@@ -222,6 +222,6 @@ ApplicationWindow {
         Theme.themeId = preferences.themeId
         backend.loadSettings()
         openHome()
-        if (startupEpisodeId > 0) openPlayer(startupEpisodeId, false, [], "播放性能验收")
+        if (startupEpisodeId > 0) openPlayer(startupEpisodeId, false, [], "正在播放")
     }
 }

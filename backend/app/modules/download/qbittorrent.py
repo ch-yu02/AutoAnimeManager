@@ -51,6 +51,10 @@ class QBittorrentAdapter:
                     base_url=base_url,
                     timeout=settings.timeout,
                     transport=self.transport,
+                    # qBittorrent is a user-configured local/LAN service and
+                    # must not be captured by the proxy used for Bangumi.
+                    # Source: https://www.python-httpx.org/environment_variables/#proxies
+                    trust_env=False,
                     follow_redirects=False,
                     headers={"Referer": f"{base_url}/"},
                 )

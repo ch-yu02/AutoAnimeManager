@@ -97,6 +97,14 @@ export AUTOANIME_APP__PORT=9000
 export AUTOANIME_BANGUMI__ACCESS_TOKEN=your-token
 ```
 
+需要代理访问 Bangumi 时，在启动客户端的同一环境设置标准代理变量；Bangumi API 与 Qt 封面请求会共同使用它，本地 FastAPI 和 qBittorrent 仍保持直连：
+
+```bash
+export HTTP_PROXY=http://127.0.0.1:7890
+export HTTPS_PROXY=http://127.0.0.1:7890
+autoanime-desktop
+```
+
 不要提交 `config.yaml`、`.env`、数据库或媒体文件。
 
 ## 开发

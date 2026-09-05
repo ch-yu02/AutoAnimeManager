@@ -43,7 +43,7 @@ ApplicationWindow {
             }
             Label {
                 Layout.fillWidth: true
-                text: "数据库迁移失败时不会继续启动后端，也不会修改媒体文件。"
+                text: "请查看上方提示后重试。你的媒体文件不会受到影响。"
                 color: Theme.textTertiary
                 font.pixelSize: Typography.meta
                 wrapMode: Text.Wrap

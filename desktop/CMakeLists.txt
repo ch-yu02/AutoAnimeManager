@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(AutoAnimeDesktopProbe VERSION 0.1.0 LANGUAGES CXX)
+project(AutoAnime VERSION 0.2.1 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
@@ -50,6 +50,8 @@ qt_add_executable(autoanime-desktop
     src/player/PlayerController.h
     src/system/SleepInhibitor.cpp
     src/system/SleepInhibitor.h
+    src/system/NetworkProxy.cpp
+    src/system/NetworkProxy.h
     src/player/MpvVideoItem.cpp
     src/player/MpvVideoItem.h
     src/qml/QmlBackend.cpp
@@ -136,6 +138,7 @@ target_link_libraries(autoanime-desktop
         Qt6::QuickControls2
 )
 target_compile_options(autoanime-desktop PRIVATE -Wall -Wextra -Wpedantic)
+target_compile_definitions(autoanime-desktop PRIVATE AUTOANIME_VERSION="${PROJECT_VERSION}")
 
 if(BUILD_TESTING)
     find_package(Qt6 6.4 REQUIRED COMPONENTS Test)
@@ -194,6 +197,19 @@ if(BUILD_TESTING)
         NAME autoanime-qml-backend-activity-tests
         COMMAND autoanime-qml-backend-activity-tests
     )
+
+    add_executable(autoanime-network-proxy-tests
+        tests/test_network_proxy.cpp
+        src/system/NetworkProxy.cpp
+        src/system/NetworkProxy.h
+    )
+    target_include_directories(autoanime-network-proxy-tests PRIVATE src)
+    target_link_libraries(autoanime-network-proxy-tests PRIVATE Qt6::Network Qt6::Test)
+    target_compile_options(autoanime-network-proxy-tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(
+        NAME autoanime-network-proxy-tests
+        COMMAND autoanime-network-proxy-tests
+    )
 endif()
 
 # Ubuntu is the first supported release platform. The package keeps qBittorrent
@@ -243,7 +259,7 @@ install(
 set(CPACK_PACKAGE_NAME "AutoAnime")
 set(CPACK_PACKAGE_VENDOR "AutoAnime")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "本地动画媒体库与自动追番客户端")
-set(CPACK_PACKAGE_VERSION "0.2.0")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_PACKAGE_CONTACT "ch-yu02")
 set(CPACK_RESOURCE_FILE_LICENSE "${AUTOANIME_ROOT}/desktop/THIRD_PARTY_NOTICES.md")
 set(CPACK_GENERATOR "DEB;TGZ")

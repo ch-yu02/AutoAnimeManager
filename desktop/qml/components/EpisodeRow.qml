@@ -84,7 +84,7 @@ Rectangle {
                 MenuItem { text: "从头播放"; visible: root.playable; onTriggered: root.fromStartClicked() }
                 MenuSeparator { visible: root.searchable }
                 MenuItem { text: "输入磁力链接"; visible: root.searchable; onTriggered: root.magnetClicked() }
-                MenuItem { text: "调试选择"; visible: root.debugVisible && root.searchable; onTriggered: root.debugClicked() }
+                MenuItem { text: "预览自动选择"; visible: root.debugVisible && root.searchable; onTriggered: root.debugClicked() }
             }
         }
     }

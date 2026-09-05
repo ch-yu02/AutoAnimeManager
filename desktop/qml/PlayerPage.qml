@@ -100,7 +100,6 @@ Page {
                 Label { Layout.fillWidth: true; text: root.displayedSubjectTitle; color: "white"; font.pixelSize: Typography.itemTitle; font.weight: Typography.semibold; elide: Text.ElideRight }
                 Label { Layout.fillWidth: true; visible: text.length > 0; text: root.displayedEpisodeTitle; color: Qt.rgba(1, 1, 1, 0.72); font.pixelSize: Typography.meta; elide: Text.ElideRight }
             }
-            IconButton { iconName: "more-horizontal"; foreground: "white"; tooltip: "播放信息"; onClicked: infoMenu.open(); Menu { id: infoMenu; MenuItem { text: "硬件解码：" + (player.hwdec || "software"); enabled: false } MenuItem { text: "掉帧：" + player.droppedFrames; enabled: false } } }
         }
         Behavior on opacity { NumberAnimation { duration: 160 } }
     }
@@ -168,7 +167,7 @@ Page {
                     PlayerSlider { Layout.preferredWidth: 112; from: 0; to: 100; value: player.volume; onMoved: player.setVolume(value) }
                     AppButton { text: player.speed.toFixed(2) + "×"; foreground: "white"; variant: "ghost"; onClicked: speedMenu.open(); Menu { id: speedMenu; Repeater { model: [0.5, 0.75, 1, 1.25, 1.5, 2]; delegate: MenuItem { required property var modelData; text: modelData + "×"; onTriggered: player.setSpeed(modelData) } } } }
                     IconButton { iconName: "audio-lines"; foreground: "white"; tooltip: "音轨"; onClicked: audioMenu.open(); Menu { id: audioMenu; Repeater { model: player.audioTracks; delegate: MenuItem { required property var modelData; text: (modelData.selected ? "✓ " : "") + modelData.label; onTriggered: player.selectAudioTrack(modelData.id) } } } }
-                    IconButton { iconName: "captions"; foreground: "white"; tooltip: "字幕"; onClicked: subtitleMenu.open(); Menu { id: subtitleMenu; MenuItem { text: "关闭字幕"; onTriggered: player.selectSubtitleTrack(-1) } Repeater { model: player.subtitleTracks; delegate: MenuItem { required property var modelData; text: (modelData.selected ? "✓ " : "") + modelData.label; onTriggered: player.selectSubtitleTrack(modelData.id) } } MenuSeparator {} MenuItem { text: "加载外挂字幕…"; onTriggered: subtitleDialog.open() } } }
+                    IconButton { iconName: "captions"; foreground: "white"; tooltip: "字幕"; onClicked: subtitleMenu.open(); Menu { id: subtitleMenu; MenuItem { text: "关闭字幕"; onTriggered: player.selectSubtitleTrack(-1) } Repeater { model: player.subtitleTracks; delegate: MenuItem { required property var modelData; text: (modelData.selected ? "✓ " : "") + modelData.label; onTriggered: player.selectSubtitleTrack(modelData.id) } } MenuSeparator {} MenuItem { text: "打开字幕文件…"; onTriggered: subtitleDialog.open() } } }
                     IconButton { iconName: "maximize"; foreground: "white"; iconSize: 24; tooltip: "全屏（F）"; onClicked: root.toggleFullscreen() }
                 }
             }

@@ -37,6 +37,14 @@ Page {
         return status || "未知"
     }
 
+    function reasonText(value) {
+        let text = String(value || "")
+        if (text === "Subject 已完结") return "条目已完结"
+        if (text === "没有 active download、unresolved mapping 或正在播放的文件")
+            return "没有正在下载、等待匹配或正在播放的文件"
+        return text.replace(" 个 MAIN Episode 已看且有完成时间", " 集正片均已看完")
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Metrics.pageMargin(root.width)
@@ -114,7 +122,7 @@ Page {
                                 Layout.fillWidth: true
                                 Label {
                                     Layout.fillWidth: true
-                                    text: modelData.subject_name || ("Subject " + modelData.subject_id)
+                                    text: modelData.subject_name || ("条目 #" + modelData.subject_id)
                                     color: Theme.textPrimary
                                     font.pixelSize: Typography.itemTitle
                                     font.weight: Typography.semibold
@@ -129,7 +137,7 @@ Page {
                                     + " · " + (modelData.files || []).length + " 个文件"
                                     + " · 隔离于 " + root.formatTime(modelData.quarantined_at)
                                     + (modelData.status === "QUARANTINED"
-                                        ? " · 自动删除时间 " + root.formatTime(modelData.delete_after)
+                                        ? " · 预计删除 " + root.formatTime(modelData.delete_after)
                                         : "")
                                 color: Theme.textTertiary
                                 wrapMode: Text.Wrap
@@ -138,7 +146,7 @@ Page {
                             Label {
                                 Layout.fillWidth: true
                                 visible: (modelData.reasons || []).length > 0
-                                text: (modelData.reasons || []).join("；")
+                                text: (modelData.reasons || []).map(item => root.reasonText(item)).join("；")
                                 color: Theme.textSecondary
                                 wrapMode: Text.Wrap
                             }

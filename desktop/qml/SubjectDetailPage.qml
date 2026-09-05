@@ -49,6 +49,44 @@ Page {
         const index = collectionIndex(value)
         return index >= 0 ? collectionOptions[index].text : "未收藏"
     }
+    function episodeNumberText(type, number) {
+        if (type === "MAIN") return "第 " + number + " 集"
+        const labels = {
+            "SPECIAL": "特别篇", "SP": "特别篇", "OP": "片头",
+            "ED": "片尾", "PV": "预告", "OTHER": "其他"
+        }
+        return (labels[type] || "附加内容") + (number ? " " + number : "")
+    }
+    function downloadStateText(state) {
+        const labels = {
+            "CREATED": "等待下载", "QUEUED": "等待下载", "DOWNLOADING": "下载中",
+            "STALLED": "已暂停", "COMPLETED": "正在整理", "IMPORTING": "正在整理",
+            "IMPORTED": "已完成", "FAILED": "下载失败"
+        }
+        return labels[state] || "处理中"
+    }
+    function localStatusText(status) {
+        if (status === "READY") return "可播放"
+        if (status === "MISSING") return "暂无文件"
+        return "正在处理"
+    }
+    function cleanupBlockerText(value) {
+        let text = String(value || "")
+        if (text === "Subject 尚未确认完结") return "条目尚未完结"
+        if (text === "没有 MAIN Episode") return "没有正片剧集"
+        if (text === "部分 MAIN Episode 缺少完成时间") return "部分正片缺少观看完成时间"
+        if (text === "存在 active download") return "此条目仍有下载任务"
+        if (text === "存在 unresolved mapping") return "部分媒体文件尚未完成匹配"
+        return text.replace(" 个 MAIN Episode 未看", " 集正片未看")
+    }
+    function relationText(value) {
+        const labels = {
+            "PREQUEL": "前传", "SEQUEL": "续集", "SIDE_STORY": "番外篇",
+            "SAME_SETTING": "相同世界观", "ALTERNATIVE": "不同演绎",
+            "SUMMARY": "总集篇", "SPIN_OFF": "衍生", "OTHER": "相关"
+        }
+        return labels[value] || value || "相关"
+    }
     background: Rectangle { color: Theme.canvas }
 
     ScrollView {
@@ -116,7 +154,7 @@ Page {
             Label {
                 visible: (backend.subject.relations || []).length > 0
                 Layout.fillWidth: true
-                text: "相关条目：" + (backend.subject.relations || []).map(item => (item.name_cn || item.name) + "（" + item.relation_type + "）").join(" · ")
+                text: "相关条目：" + (backend.subject.relations || []).map(item => (item.name_cn || item.name) + "（" + root.relationText(item.relation_type) + "）").join(" · ")
                 color: Theme.textTertiary
                 font.pixelSize: Typography.meta
                 wrapMode: Text.Wrap
@@ -126,12 +164,12 @@ Page {
                 delegate: EpisodeRow {
                     required property var modelData
                     property var downloadJob: root.jobForEpisode(modelData.id)
-                    numberText: modelData.episode_type + " " + modelData.display_number
+                    numberText: root.episodeNumberText(modelData.episode_type, modelData.display_number)
                     title: modelData.name_cn || modelData.name || "未命名"
                     metadata: modelData.air_date || "日期未知"
                     statusText: downloadJob && downloadJob.state !== "IMPORTED"
-                        ? downloadJob.state + " " + Math.round(downloadJob.progress * 100) + "%"
-                        : (modelData.watched ? "已看" : modelData.local_status)
+                        ? root.downloadStateText(downloadJob.state) + " " + Math.round(downloadJob.progress * 100) + "%"
+                        : (modelData.watched ? "已看" : root.localStatusText(modelData.local_status))
                     status: downloadJob && downloadJob.state !== "IMPORTED" ? downloadJob.state : modelData.local_status
                     progress: modelData.playback ? modelData.playback.progress_ratio : 0
                     watched: modelData.watched
@@ -159,21 +197,21 @@ Page {
                     }
                 }
             }
-            EmptyState { visible: backend.episodes.length === 0 && !(backend.activities.subjectLoading || false); Layout.fillWidth: true; title: "暂无章节数据"; detail: "完成 Bangumi 同步后再查看。"; iconName: "inbox" }
+            EmptyState { visible: backend.episodes.length === 0 && !(backend.activities.subjectLoading || false); Layout.fillWidth: true; title: "暂无剧集信息"; detail: "同步 Bangumi 后，这里会显示剧集列表。"; iconName: "inbox" }
 
             SettingsSection {
-                title: "媒体维护"
+                title: "文件管理"
                 description: backend.cleanupEligibility.eligible
                     ? "本条目可移入隔离区，预计释放 " + root.formatSize(backend.cleanupEligibility.bytes_total)
-                    : "暂不可清理：" + (backend.cleanupEligibility.blockers || []).join("；")
+                    : "暂不可清理：" + (backend.cleanupEligibility.blockers || []).map(item => root.cleanupBlockerText(item)).join("；")
                 CheckBox {
-                    text: "永久保留本条目，不参与自动清理"
+                    text: "始终保留本条目的媒体文件"
                     checked: backend.subject.keep_forever || false
                     enabled: backend.subject.id === root.subjectId && !(backend.activities.subjectKeepSaving || false)
                     onClicked: backend.setSubjectKeepForever(root.subjectId, checked)
                 }
                 AppButton {
-                    text: "手动移入隔离区"
+                    text: "移入隔离区"
                     iconName: "archive-restore"
                     visible: backend.cleanupEligibility.eligible || false
                     enabled: !(backend.activities.cleanupMutating || false)
@@ -187,7 +225,7 @@ Page {
         id: downloadDialog
         anchors.centerIn: parent
         width: Math.min(680, root.width - 60)
-        title: root.downloadEpisode ? "下载 Episode " + root.downloadEpisode.display_number : "新建下载"
+        title: root.downloadEpisode ? "下载第 " + root.downloadEpisode.display_number + " 集" : "新建下载"
         modal: true
         standardButtons: Dialog.Ok | Dialog.Cancel
         onAccepted: {
@@ -195,7 +233,7 @@ Page {
         }
         contentItem: ColumnLayout {
             spacing: Metrics.space3
-            Label { Layout.fillWidth: true; text: "粘贴完整 magnet 或 BTIH 特征码，系统会直接下载到媒体库并关联此 Episode。"; wrapMode: Text.Wrap }
+            Label { Layout.fillWidth: true; text: "粘贴磁力链接或 BTIH 特征码，文件会直接保存到媒体库。"; wrapMode: Text.Wrap }
             TextArea {
                 id: magnetInput
                 Layout.fillWidth: true
@@ -210,7 +248,7 @@ Page {
         anchors.centerIn: parent
         width: Math.min(900, root.width - 60)
         height: Math.min(720, root.height - 60)
-        title: root.searchEpisode ? "Episode " + root.searchEpisode.display_number + " 资源候选" : "资源候选"
+        title: root.searchEpisode ? "第 " + root.searchEpisode.display_number + " 集的可用资源" : "可用资源"
         modal: true
         standardButtons: Dialog.Close
 
@@ -219,9 +257,8 @@ Page {
             Label {
                 Layout.fillWidth: true
                 text: backend.releaseSearch.id
-                    ? "Provider：" + backend.releaseSearch.provider + " · "
-                        + (backend.releaseSearch.candidates || []).length + " 个可选候选"
-                    : "正在搜索配置的 RSS…"
+                    ? "找到 " + (backend.releaseSearch.candidates || []).length + " 个可下载资源"
+                    : "正在搜索资源…"
                 color: Theme.textTertiary
             }
             RowLayout {
@@ -229,12 +266,12 @@ Page {
                 visible: root.showAutoSelectionDebug
                 Label {
                     Layout.fillWidth: true
-                    text: "调试只标注正式自动流程会选择的候选，不会创建下载任务。"
+                    text: "预览自动下载会选择的资源，不会开始下载。"
                     color: Theme.textTertiary
                     wrapMode: Text.Wrap
                 }
                 AppButton {
-                    text: "调试自动选择"
+                    text: "预览自动选择"
                     enabled: backend.releaseSearch.id && !(backend.activities.releaseDebugSelecting || false)
                     onClicked: backend.debugAutoSelect(backend.releaseSearch.id)
                 }
@@ -247,7 +284,7 @@ Page {
             Label {
                 Layout.fillWidth: true
                 visible: backend.releaseSearch.id && (backend.releaseSearch.candidates || []).length === 0
-                text: "没有满足匹配条件的候选资源"
+                text: "没有找到合适的资源"
                 color: Theme.textTertiary
                 horizontalAlignment: Text.AlignHCenter
             }
@@ -283,11 +320,6 @@ Page {
                                         font.weight: Font.DemiBold
                                         wrapMode: Text.Wrap
                                     }
-                                    Label {
-                                        text: modelData.decision + " · " + Math.round(modelData.score)
-                                        color: modelData.decision === "AUTO_ACCEPT" ? Theme.accent
-                                            : Theme.warning
-                                    }
                                 }
                                 Label {
                                     Layout.fillWidth: true
@@ -303,22 +335,15 @@ Page {
                                 Label {
                                     Layout.fillWidth: true
                                     visible: root.showAutoSelectionDebug && !!modelData.debug_selected_at
-                                    text: "自动选择调试命中（未下载）"
+                                    text: "自动下载会优先选择此资源"
                                     color: Theme.warning
                                     font.weight: Font.Bold
-                                }
-                                Label {
-                                    Layout.fillWidth: true
-                                    visible: (modelData.match_reasons || []).length > 0
-                                    text: "匹配：" + (modelData.match_reasons || []).join("；")
-                                    color: Theme.accent
-                                    wrapMode: Text.Wrap
                                 }
                                 RowLayout {
                                     Layout.fillWidth: true
                                     Item { Layout.fillWidth: true }
                                     AppButton {
-                                        text: modelData.download_job_id ? "已创建下载" : "选择并下载"
+                                        text: modelData.download_job_id ? "已加入下载" : "选择并下载"
                                         variant: "primary"
                                         enabled: modelData.downloadable && !modelData.download_job_id
                                             && !(backend.activities.releaseDownloading || false)

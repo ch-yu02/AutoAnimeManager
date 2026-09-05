@@ -98,3 +98,24 @@ async def test_state_queries_and_writeback_remain_available() -> None:
 
     assert marked["watched"] is False
     assert writes == [(1, False), (1, True)]
+
+
+@pytest.mark.anyio
+async def test_automatic_writeback_retries_after_a_transient_failure() -> None:
+    states = FakeStateService()
+    attempts = 0
+
+    async def writeback(_episode_id: int, _watched: bool) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("proxy unavailable")
+
+    settings = SimpleNamespace(bangumi_writeback_enabled=True)
+    service = PlaybackSessionService(states, lambda: settings, writeback)
+    current = await service.create(1)
+
+    await service.progress(current["session_id"], 1440, 1440, ended=True)
+    await service.progress(current["session_id"], 1440, 1440, ended=True)
+
+    assert attempts == 2

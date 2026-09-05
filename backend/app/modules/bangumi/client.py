@@ -40,6 +40,16 @@ class BangumiClient:
         self.page_size = settings.page_size
         self._cache: dict[tuple[str, tuple[tuple[str, str], ...]], tuple[float, Any]] = {}
 
+    def _new_http_client(self) -> httpx.AsyncClient:
+        # HTTPX honors HTTP_PROXY/HTTPS_PROXY/ALL_PROXY by default. Keep that
+        # behavior explicit and identical for reads and writebacks.
+        # Source: https://www.python-httpx.org/environment_variables/#proxies
+        return httpx.AsyncClient(
+            base_url=self.settings.base_url,
+            timeout=self.settings.timeout,
+            trust_env=True,
+        )
+
     def _path(self, path: str) -> str:
         base = self.settings.base_url.rstrip("/")
         if base.endswith("/v0"):
@@ -55,7 +65,7 @@ class BangumiClient:
 
     async def __aenter__(self) -> "BangumiClient":
         if self._client is None:
-            self._client = httpx.AsyncClient(base_url=self.settings.base_url, timeout=self.settings.timeout)
+            self._client = self._new_http_client()
         return self
 
     async def __aexit__(self, *_: object) -> None:
@@ -74,7 +84,7 @@ class BangumiClient:
 
         client = self._client
         if client is None:
-            client = httpx.AsyncClient(base_url=self.settings.base_url, timeout=self.settings.timeout)
+            client = self._new_http_client()
             self._client = client
         for attempt in range(self.max_retries + 1):
             try:
@@ -203,7 +213,7 @@ class BangumiClient:
     async def set_episode_collection(self, episode_id: int, watched: bool) -> None:
         client = self._client
         if client is None:
-            client = httpx.AsyncClient(base_url=self.settings.base_url, timeout=self.settings.timeout)
+            client = self._new_http_client()
             self._client = client
         for attempt in range(self.max_retries + 1):
             try:
@@ -241,7 +251,7 @@ class BangumiClient:
             raise ValueError(f"未知 Bangumi 收藏状态：{collection_type}")
         client = self._client
         if client is None:
-            client = httpx.AsyncClient(base_url=self.settings.base_url, timeout=self.settings.timeout)
+            client = self._new_http_client()
             self._client = client
         for attempt in range(self.max_retries + 1):
             try:

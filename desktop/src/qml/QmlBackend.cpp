@@ -2,13 +2,43 @@
 
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QHash>
 #include <QNetworkAccessManager>
+#include <QNetworkProxy>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QUrlQuery>
 
 #include <algorithm>
 #include <utility>
+
+namespace {
+
+QString schedulerTaskLabel(const QString &name)
+{
+    static const QHash<QString, QString> labels{
+        {QStringLiteral("BangumiSync"), QStringLiteral("同步 Bangumi")},
+        {QStringLiteral("LibraryScan"), QStringLiteral("扫描媒体库")},
+        {QStringLiteral("DemandRefresh"), QStringLiteral("更新待下载剧集")},
+        {QStringLiteral("ReleaseSearch"), QStringLiteral("搜索可用资源")},
+        {QStringLiteral("DownloadMonitor"), QStringLiteral("更新下载进度")},
+        {QStringLiteral("Cleanup"), QStringLiteral("清理媒体文件")},
+        {QStringLiteral("Backup"), QStringLiteral("备份数据")},
+    };
+    return labels.value(name, QStringLiteral("后台任务"));
+}
+
+QString schedulerStatusLabel(const QString &status)
+{
+    static const QHash<QString, QString> labels{
+        {QStringLiteral("RUNNING"), QStringLiteral("已开始")},
+        {QStringLiteral("SUCCESS"), QStringLiteral("已完成")},
+        {QStringLiteral("FAILED"), QStringLiteral("执行失败")},
+    };
+    return labels.value(status, QStringLiteral("已提交"));
+}
+
+} // namespace
 
 namespace autoanime {
 
@@ -17,6 +47,8 @@ QmlBackend::QmlBackend(QUrl baseUrl, QObject *parent)
     , m_network(new QNetworkAccessManager(this))
     , m_baseUrl(std::move(baseUrl))
 {
+    // QML API traffic stays local even when poster requests use an application proxy.
+    m_network->setProxy(QNetworkProxy::NoProxy);
     m_scanTimer.setInterval(800);
     connect(&m_scanTimer, &QTimer::timeout, this, [this] {
         if (m_activityPending.value(QStringLiteral("libraryScanPolling")) > 0) {
@@ -288,7 +320,8 @@ void QmlBackend::runSchedulerTask(const QString &taskName)
         [this, taskName](const QVariant &value) {
             const QVariantMap run = value.toMap();
             const QString status = run.value(QStringLiteral("status")).toString();
-            setNotice(QStringLiteral("%1：%2").arg(taskName, status));
+            setNotice(QStringLiteral("%1：%2").arg(
+                schedulerTaskLabel(taskName), schedulerStatusLabel(status)));
             loadScheduler();
             if (taskName == QStringLiteral("DownloadMonitor")) {
                 loadDownloads();
@@ -303,7 +336,7 @@ void QmlBackend::createBackup()
     }
     send("POST", QStringLiteral("api/maintenance/backup"), {}, [this](const QVariant &value) {
         const QVariantMap result = value.toMap();
-        setNotice(QStringLiteral("数据库备份已验证：%1").arg(
+        setNotice(QStringLiteral("备份已创建：%1").arg(
             result.value(QStringLiteral("path")).toString()
         ));
         loadScheduler();
@@ -317,7 +350,7 @@ void QmlBackend::createDiagnostics()
     }
     send("POST", QStringLiteral("api/maintenance/diagnostics"), {}, [this](const QVariant &value) {
         const QVariantMap result = value.toMap();
-        setNotice(QStringLiteral("脱敏诊断包已生成：%1").arg(
+        setNotice(QStringLiteral("诊断包已生成：%1").arg(
             result.value(QStringLiteral("path")).toString()
         ));
     }, QStringLiteral("maintenanceRunning"));
@@ -499,7 +532,7 @@ void QmlBackend::deleteDownload(const QString &jobId, bool deleteFiles)
     }
     const QString suffix = deleteFiles ? QStringLiteral("?delete_files=true") : QString{};
     send("DELETE", QStringLiteral("api/downloads/%1").arg(jobId) + suffix, {}, [this](const QVariant &) {
-        setNotice(QStringLiteral("qBittorrent 任务已删除"));
+        setNotice(QStringLiteral("下载任务已删除"));
         loadDownloads();
     }, QStringLiteral("downloadMutating"));
 }
@@ -550,8 +583,8 @@ void QmlBackend::debugAutoSelect(const QString &searchId)
                 }
             );
             setNotice(selected
-                ? QStringLiteral("已标注自动选择候选；未创建下载任务")
-                : QStringLiteral("没有满足 AUTO_ACCEPT 条件的候选；未创建下载任务"));
+                ? QStringLiteral("已标出自动下载会选择的资源，本次不会开始下载")
+                : QStringLiteral("没有找到适合自动下载的资源，本次不会开始下载"));
             emit releaseSearchChanged();
         }, QStringLiteral("releaseDebugSelecting"));
 }
@@ -563,7 +596,7 @@ void QmlBackend::downloadReleaseCandidate(const QString &candidateId)
     }
     send("POST", QStringLiteral("api/releases/candidates/%1/download").arg(candidateId), {},
         [this](const QVariant &) {
-            setNotice(QStringLiteral("已从候选创建下载任务"));
+            setNotice(QStringLiteral("已加入下载"));
             const QString searchId = m_releaseSearch.value(QStringLiteral("id")).toString();
             if (!searchId.isEmpty()) {
                 send("GET", QStringLiteral("api/releases/search/%1").arg(searchId), {},
@@ -638,7 +671,7 @@ void QmlBackend::reparseFile(qint64 fileId)
         return;
     }
     send("POST", QStringLiteral("api/library/files/%1/reparse").arg(fileId), {}, [this](const QVariant &) {
-        setNotice(QStringLiteral("已提交重新解析"));
+        setNotice(QStringLiteral("正在重新识别文件"));
         loadLibrary();
     }, QStringLiteral("libraryMutating"));
 }
@@ -660,7 +693,7 @@ void QmlBackend::matchFile(qint64 fileId, qint64 subjectId, const QVariantList &
         {QStringLiteral("write_manifest"), true},
     };
     send("POST", QStringLiteral("api/library/files/%1/match").arg(fileId), body,
-        [this](const QVariant &) { setNotice(QStringLiteral("人工关联已保存")); loadLibrary(); },
+        [this](const QVariant &) { setNotice(QStringLiteral("手动关联已保存")); loadLibrary(); },
         QStringLiteral("libraryMutating"));
 }
 

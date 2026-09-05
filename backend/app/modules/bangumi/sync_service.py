@@ -65,6 +65,7 @@ class BangumiSyncService:
         *,
         settings_provider: Callable[[], BangumiConfig] | None = None,
         client_factory: Callable[[BangumiConfig], BangumiClient] | None = None,
+        episode_writeback_enabled_provider: Callable[[], bool] | None = None,
     ) -> None:
         if settings_provider is not None:
             self.settings_provider = settings_provider
@@ -73,6 +74,10 @@ class BangumiSyncService:
         else:
             self.settings_provider = lambda: get_settings().bangumi
         self.client_factory = client_factory or (lambda config: BangumiClient(config))
+        self.episode_writeback_enabled_provider = (
+            episode_writeback_enabled_provider
+            or (lambda: get_settings().player.bangumi_writeback_enabled)
+        )
         self._active_id: str | None = None
         self._active_task: asyncio.Task[None] | None = None
 
@@ -223,6 +228,9 @@ class BangumiSyncService:
         if mode == "FULL":
             await self._sync_locally_relevant_relations(client, request)
 
+        if self.episode_writeback_enabled_provider():
+            errors.extend(await self._flush_local_episode_writebacks(client, request))
+
         status = "SUCCESS"
         if errors and succeeded:
             status = "PARTIAL_FAILURE"
@@ -238,6 +246,63 @@ class BangumiSyncService:
             requests=request_count,
             error_summary="; ".join(errors) or None,
         )
+
+    @staticmethod
+    def _pending_local_episode_writebacks() -> list[tuple[int, int, bool]]:
+        with session_scope() as session:
+            rows = session.execute(
+                select(
+                    Episode.id,
+                    Episode.bangumi_episode_id,
+                    Episode.watched,
+                    Episode.bangumi_watch_status,
+                )
+                .join(PlaybackState, PlaybackState.episode_id == Episode.id)
+                .where(PlaybackState.watched_source.in_(("AUTO", "MANUAL")))
+            )
+            return [
+                (episode_id, bangumi_episode_id, watched)
+                for episode_id, bangumi_episode_id, watched, remote_status in rows
+                if watched != (remote_status == "WATCHED")
+            ]
+
+    async def _flush_local_episode_writebacks(
+        self,
+        client: BangumiClient,
+        request: Callable[[Callable[[], Awaitable[object]]], Awaitable[object]],
+    ) -> list[str]:
+        """Retry locally-authored episode states after transient network failures."""
+
+        async def writeback(item: tuple[int, int, bool]) -> str | None:
+            episode_id, bangumi_episode_id, watched = item
+            try:
+                await request(
+                    lambda: client.set_episode_collection(bangumi_episode_id, watched)
+                )
+                with session_scope() as session:
+                    episode = session.get(Episode, episode_id)
+                    if episode is not None:
+                        episode.bangumi_watch_status = "WATCHED" if watched else "NONE"
+                return None
+            except BangumiError as exc:
+                return f"episode {bangumi_episode_id} writeback: {exc.code}"
+            except Exception:
+                logger.exception(
+                    "Bangumi episode writeback retry failed",
+                    extra={"bangumi_episode_id": bangumi_episode_id},
+                )
+                return f"episode {bangumi_episode_id} writeback: unexpected_error"
+
+        tasks = [
+            asyncio.create_task(writeback(item))
+            for item in self._pending_local_episode_writebacks()
+        ]
+        errors: list[str] = []
+        for completed in asyncio.as_completed(tasks):
+            error = await completed
+            if error is not None:
+                errors.append(error)
+        return errors
 
     def _build_plans(
         self,

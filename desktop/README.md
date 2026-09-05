@@ -70,6 +70,7 @@ PlayerPage / MpvVideoItem
 20. 点击“生成诊断包”，ZIP 应包含脱敏设置、近期日志、TaskRun、download/import 和 cleanup audit；搜索 Token、qBittorrent 密码和 magnet 原文均不应命中。
 21. 构建 `DEB` 后安装，从 Ubuntu 应用菜单启动 AutoAnime；首次启动自动创建用户配置和数据目录，完整浏览、下载、播放、清理流程不需要 `npm`、`uvicorn`、`cmake` 或终端。
 22. 临时卸载/断开外部媒体根目录后运行 `LibraryScan`，任务应失败并说明已保留记录；条目不能因此丢失本地关联。重新挂载并扫描后恢复正常。
+23. 设置 `HTTP_PROXY`/`HTTPS_PROXY` 后启动客户端：Bangumi 同步、已看写回和 `lain.bgm.tv` 封面均应成功；本地 FastAPI 与 qBittorrent 连接不应进入该代理。临时停止代理后触发一次自动已看，恢复代理并再次上报进度或执行 `BangumiSync`，遗漏状态应被补写。
 
 ## Ubuntu 打包
 

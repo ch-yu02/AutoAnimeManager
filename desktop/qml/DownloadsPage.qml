@@ -8,6 +8,15 @@ Page {
     signal openSubject(int id)
     property var pendingDeleteJob: null
 
+    function stateText(state) {
+        const labels = {
+            "CREATED": "等待下载", "QUEUED": "等待下载", "DOWNLOADING": "下载中",
+            "STALLED": "已暂停", "COMPLETED": "正在整理", "IMPORTING": "正在整理",
+            "IMPORTED": "已完成", "FAILED": "下载失败"
+        }
+        return labels[state] || "处理中"
+    }
+
     function confirmDelete(deleteFiles) {
         if (!pendingDeleteJob)
             return
@@ -33,7 +42,7 @@ Page {
         }
         Label {
             Layout.fillWidth: true
-            text: "手动下载任务会持续同步 qBittorrent，下载内容直接保存在媒体库并关联 Episode。"
+            text: "下载完成后即可在对应条目中播放。"
             color: Theme.textTertiary
             wrapMode: Text.Wrap
         }
@@ -64,7 +73,7 @@ Page {
                                 Label {
                                     Layout.fillWidth: true
                                     text: (modelData.subject ? modelData.subject.name : "条目已删除") + " · "
-                                        + (modelData.episodes || []).map(item => "EP " + item.display_number).join(", ")
+                                        + (modelData.episodes || []).map(item => "第 " + item.display_number + " 集").join("、")
                                     color: Theme.textPrimary
                                     font.pixelSize: Typography.itemTitle
                                     elide: Text.ElideRight
@@ -73,7 +82,7 @@ Page {
                                 AppProgressBar { Layout.fillWidth: true; value: modelData.progress || 0 }
                                 Label {
                                     Layout.fillWidth: true
-                                    text: modelData.state + "  ·  " + Math.round((modelData.progress || 0) * 100) + "%"
+                                    text: root.stateText(modelData.state) + "  ·  " + Math.round((modelData.progress || 0) * 100) + "%"
                                         + (modelData.error ? "  ·  " + modelData.error : "")
                                     color: modelData.state === "FAILED" ? Theme.danger : Theme.textTertiary
                                     font.pixelSize: Typography.meta
@@ -112,7 +121,7 @@ Page {
             }
         }
     }
-    EmptyState { visible: backend.downloads.length === 0 && !(backend.activities.downloadsLoading || false); anchors.centerIn: parent; width: Math.min(520, parent.width - Metrics.space12); title: "暂无下载任务"; detail: "从 Episode 资源候选或磁力链接创建下载。"; iconName: "download" }
+    EmptyState { visible: backend.downloads.length === 0 && !(backend.activities.downloadsLoading || false); anchors.centerIn: parent; width: Math.min(520, parent.width - Metrics.space12); title: "暂无下载任务"; detail: "从剧集页面选择资源，或粘贴磁力链接开始下载。"; iconName: "download" }
     Dialog {
         id: deleteDialog
         anchors.centerIn: parent
@@ -134,7 +143,7 @@ Page {
             }
             Label {
                 Layout.fillWidth: true
-                text: "删除任务及本地文件会删除对应媒体文件，已导入的 Episode 将无法播放，且无法撤销。"
+                text: "删除任务及本地文件后，对应剧集将无法播放，且无法撤销。"
                 color: Theme.danger
                 wrapMode: Text.Wrap
             }

@@ -8,6 +8,7 @@
 #include "qml/QmlPlayer.h"
 #include "qml/RoundedCornerMaskItem.h"
 #include "system/SleepInhibitor.h"
+#include "system/NetworkProxy.h"
 
 #include <QCommandLineParser>
 #include <QGuiApplication>
@@ -16,7 +17,6 @@
 #include <QQuickWindow>
 #include <QSGRendererInterface>
 #include <QSurfaceFormat>
-#include <QNetworkProxy>
 
 #include <clocale>
 
@@ -33,15 +33,11 @@ int main(int argc, char *argv[])
     QSurfaceFormat::setDefaultFormat(format);
 
     QGuiApplication application(argc, argv);
-    // The desktop client only talks to the local FastAPI service and loads
-    // public poster URLs. Avoid libproxy worker crashes caused by malformed
-    // desktop proxy environment state; backend integrations keep their own
-    // independently configured network stack.
-    QNetworkProxy::setApplicationProxy(QNetworkProxy::NoProxy);
+    autoanime::configureApplicationNetworkProxy();
     std::setlocale(LC_NUMERIC, "C");
     QCoreApplication::setApplicationName(QStringLiteral("AutoAnime"));
     QCoreApplication::setOrganizationName(QStringLiteral("AutoAnime"));
-    QCoreApplication::setApplicationVersion(QStringLiteral("0.2.0"));
+    QCoreApplication::setApplicationVersion(QStringLiteral(AUTOANIME_VERSION));
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("AutoAnime Qt Quick 原生客户端"));
@@ -55,7 +51,7 @@ int main(int argc, char *argv[])
     );
     QCommandLineOption playEpisodeOption(
         QStringList{QStringLiteral("play-episode")},
-        QStringLiteral("启动后直接播放指定 Episode（用于性能基线和验收）"),
+        QStringLiteral("启动后直接播放指定剧集"),
         QStringLiteral("id")
     );
     QCommandLineOption externalBackendOption(

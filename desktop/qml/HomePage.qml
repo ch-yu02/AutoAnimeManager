@@ -20,7 +20,7 @@ ScrollView {
             Layout.fillWidth: true
             Layout.topMargin: Metrics.space6
             Label {
-                text: "晚上好"
+                text: "欢迎回来"
                 color: Theme.textSecondary
                 font.family: Typography.family
                 font.pixelSize: Typography.body
@@ -112,7 +112,7 @@ ScrollView {
                     width: Math.max(Metrics.continueCardWidth, root.availableWidth - Metrics.pageMargin(root.width) * 2)
                     anchors.verticalCenter: parent.verticalCenter
                     title: "暂无续播内容"
-                    detail: "开始播放本地 Episode 后，进度会出现在这里。"
+                    detail: "开始观看后，播放进度会显示在这里。"
                     iconName: "play"
                 }
             }

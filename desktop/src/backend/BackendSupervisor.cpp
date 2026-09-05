@@ -9,6 +9,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkAccessManager>
+#include <QNetworkProxy>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QStandardPaths>
@@ -30,7 +31,7 @@ QString errorSummary(const QByteArray &output)
             return line.left(1200);
         }
     }
-    return lines.isEmpty() ? QStringLiteral("迁移进程未返回错误信息") : lines.constLast().left(1200);
+    return lines.isEmpty() ? QStringLiteral("未获取到详细错误信息") : lines.constLast().left(1200);
 }
 
 } // namespace
@@ -64,13 +65,13 @@ bool BackendSupervisor::ensureReady(QString *errorMessage, int timeoutMs)
     }
     if (initial == ProbeResult::Degraded) {
         if (errorMessage) {
-            *errorMessage = QStringLiteral("已有后端未就绪：%1").arg(detail);
+            *errorMessage = QStringLiteral("AutoAnime 服务尚未就绪：%1").arg(detail);
         }
         return false;
     }
     if (!m_launchAllowed || !isLocalBackend()) {
         if (errorMessage) {
-            *errorMessage = QStringLiteral("无法连接后端：%1").arg(m_backendUrl.toString());
+            *errorMessage = QStringLiteral("无法连接 AutoAnime 服务：%1").arg(m_backendUrl.toString());
         }
         return false;
     }
@@ -90,7 +91,7 @@ bool BackendSupervisor::ensureReady(QString *errorMessage, int timeoutMs)
     m_process.start(m_python, arguments);
     if (!m_process.waitForStarted(5000)) {
         if (errorMessage) {
-            *errorMessage = QStringLiteral("FastAPI 启动失败：%1").arg(m_process.errorString());
+            *errorMessage = QStringLiteral("AutoAnime 服务启动失败：%1").arg(m_process.errorString());
         }
         return false;
     }
@@ -122,6 +123,7 @@ BackendSupervisor::ProbeResult BackendSupervisor::probeHealth(QString *detail) c
 {
     QUrl healthUrl = m_backendUrl.resolved(QUrl(QStringLiteral("api/health")));
     QNetworkAccessManager network;
+    network.setProxy(QNetworkProxy::NoProxy);
     QNetworkReply *reply = network.get(QNetworkRequest(healthUrl));
     QEventLoop loop;
     QTimer timer;
@@ -162,7 +164,7 @@ bool BackendSupervisor::waitForReady(int timeoutMs, QString *errorMessage)
         QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
         if (m_process.state() == QProcess::NotRunning) {
             if (errorMessage) {
-                *errorMessage = QStringLiteral("FastAPI 提前退出（%1）：%2")
+                *errorMessage = QStringLiteral("AutoAnime 服务意外退出（%1）：%2")
                     .arg(m_process.exitCode())
                     .arg(errorSummary(m_processOutput + m_process.readAllStandardOutput()));
             }
@@ -174,14 +176,14 @@ bool BackendSupervisor::waitForReady(int timeoutMs, QString *errorMessage)
         }
         if (result == ProbeResult::Degraded) {
             if (errorMessage) {
-                *errorMessage = QStringLiteral("FastAPI 数据库未就绪：%1").arg(detail);
+                *errorMessage = QStringLiteral("AutoAnime 数据尚未就绪：%1").arg(detail);
             }
             return false;
         }
         QThread::msleep(100);
     }
     if (errorMessage) {
-        *errorMessage = QStringLiteral("等待 FastAPI 就绪超时");
+        *errorMessage = QStringLiteral("AutoAnime 服务启动超时");
     }
     return false;
 }
@@ -191,14 +193,14 @@ bool BackendSupervisor::prepareRuntime(QString *errorMessage)
     m_runtimeRoot = findRuntimeRoot();
     if (m_runtimeRoot.isEmpty()) {
         if (errorMessage) {
-            *errorMessage = QStringLiteral("找不到随程序安装的 Python backend");
+            *errorMessage = QStringLiteral("找不到 AutoAnime 的必要程序文件");
         }
         return false;
     }
     m_python = findPython(m_runtimeRoot);
     if (m_python.isEmpty()) {
         if (errorMessage) {
-            *errorMessage = QStringLiteral("找不到 AutoAnime Python runtime");
+            *errorMessage = QStringLiteral("找不到 AutoAnime 的运行环境");
         }
         return false;
     }
@@ -266,7 +268,7 @@ bool BackendSupervisor::runMigration(QString *errorMessage)
             qWarning().noquote() << "[migration]" << QString::fromUtf8(output).trimmed();
         }
         if (errorMessage) {
-            *errorMessage = QStringLiteral("SQLite migration failure：%1").arg(errorSummary(output));
+            *errorMessage = QStringLiteral("AutoAnime 数据升级失败：%1").arg(errorSummary(output));
         }
         return false;
     }

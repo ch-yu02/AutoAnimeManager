@@ -66,7 +66,7 @@ Page {
                 }
                 Item { Layout.fillWidth: true }
                 AppButton {
-                    text: "仅显示本地已匹配"
+                    text: "只看本地可播放"
                     variant: "filter"
                     checkable: true
                     checked: root.localOnly
@@ -133,7 +133,7 @@ Page {
         anchors.centerIn: parent
         width: Math.min(520, parent.width - Metrics.space12)
         title: "当前分类没有条目"
-        detail: root.localOnly ? "关闭本地筛选以查看全部收藏条目。" : "Bangumi 同步后，条目会按放送年份显示。"
+        detail: root.localOnly ? "关闭筛选即可查看此分类的全部条目。" : "同步 Bangumi 后，这里会按放送年份整理收藏。"
         iconName: "library-big"
     }
     BusyIndicator { anchors.centerIn: parent; running: (backend.activities.subjectsLoading || false) && backend.subjects.length === 0 }

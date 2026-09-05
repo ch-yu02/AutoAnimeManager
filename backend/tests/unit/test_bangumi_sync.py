@@ -24,6 +24,8 @@ class FakeBangumiClient:
         self.collections = [BangumiCollection(10, "DOING"), BangumiCollection(20, "WISH")]
         self.fail_subject_ids: set[int] = set()
         self.calls: list[tuple[str, int]] = []
+        self.episode_statuses: dict[int, str] | None = None
+        self.writebacks: list[tuple[int, bool]] = []
 
     async def __aenter__(self):
         return self
@@ -66,7 +68,12 @@ class FakeBangumiClient:
 
     async def get_episode_collection(self, subject_id: int):
         self.calls.append(("episode_status", subject_id))
+        if self.episode_statuses is not None:
+            return self.episode_statuses
         return {subject_id * 10: "WATCHED"}
+
+    async def set_episode_collection(self, episode_id: int, watched: bool) -> None:
+        self.writebacks.append((episode_id, watched))
 
 
 def test_sync_is_idempotent_and_preserves_local_watched(tmp_path: Path, monkeypatch) -> None:
@@ -224,6 +231,79 @@ def test_sync_reconciles_remote_unwatch_without_overriding_manual_state(
         state = session.scalar(select(PlaybackState).where(PlaybackState.episode_id == episode.id))
         assert episode.watched is True
         assert state is not None and state.watched is True and state.watched_source == "MANUAL"
+
+
+def test_sync_retries_local_episode_state_that_failed_to_write_back(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AUTOANIME_DATABASE__URL", f"sqlite:///{tmp_path / 'sync.db'}")
+    get_settings.cache_clear()
+    get_engine.cache_clear()
+    create_schema()
+
+    fake_client = FakeBangumiClient()
+    fake_client.episode_statuses = {}
+    service = BangumiSyncService(
+        BangumiConfig(username="user", access_token="token"),
+        client_factory=lambda _: fake_client,
+    )
+    asyncio.run(service.sync_now())
+
+    from backend.app.database.session import session_scope
+
+    with session_scope() as session:
+        episode = session.scalar(select(Episode).where(Episode.bangumi_episode_id == 100))
+        assert episode is not None
+        episode.watched = True
+        state = session.scalar(select(PlaybackState).where(PlaybackState.episode_id == episode.id))
+        if state is None:
+            state = PlaybackState(episode_id=episode.id)
+            session.add(state)
+        state.watched = True
+        state.watched_source = "MANUAL"
+
+    asyncio.run(service.sync_now(mode="QUICK"))
+
+    assert fake_client.writebacks == [(100, True)]
+    with session_scope() as session:
+        episode = session.scalar(select(Episode).where(Episode.bangumi_episode_id == 100))
+        assert episode is not None and episode.bangumi_watch_status == "WATCHED"
+
+
+def test_sync_does_not_retry_writebacks_when_writeback_is_disabled(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AUTOANIME_DATABASE__URL", f"sqlite:///{tmp_path / 'sync.db'}")
+    get_settings.cache_clear()
+    get_engine.cache_clear()
+    create_schema()
+
+    fake_client = FakeBangumiClient()
+    fake_client.episode_statuses = {}
+    service = BangumiSyncService(
+        BangumiConfig(username="user", access_token="token"),
+        client_factory=lambda _: fake_client,
+        episode_writeback_enabled_provider=lambda: False,
+    )
+    asyncio.run(service.sync_now())
+
+    from backend.app.database.session import session_scope
+
+    with session_scope() as session:
+        episode = session.scalar(select(Episode).where(Episode.bangumi_episode_id == 100))
+        assert episode is not None
+        episode.watched = True
+        session.add(PlaybackState(
+            episode_id=episode.id,
+            watched=True,
+            watched_source="MANUAL",
+        ))
+
+    asyncio.run(service.sync_now(mode="QUICK"))
+
+    assert fake_client.writebacks == []
 
 
 def test_sync_reconciles_removed_collections_without_deleting_metadata(
