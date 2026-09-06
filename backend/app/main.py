@@ -38,7 +38,7 @@ from backend.app.modules.playback.state_service import PlaybackStateService
 from backend.app.modules.playback.writeback import writeback_episode_state
 from backend.app.modules.download import DownloadService
 from backend.app.modules.release import ReleaseSearchService
-from backend.app.modules.release.providers import KissSubRSSProvider
+from backend.app.modules.release.providers import MultiRSSProvider
 from backend.app.modules.cleanup import CleanupService
 from backend.app.modules.maintenance import MaintenanceService
 
@@ -67,7 +67,7 @@ async def lifespan(app: FastAPI):
     download_service = DownloadService()
     app.state.download_service = download_service
     app.state.release_search_service = ReleaseSearchService(
-        KissSubRSSProvider(lambda: get_settings().release_search),
+        MultiRSSProvider(lambda: get_settings().release_search),
         download_service,
         settings_provider=get_settings,
     )

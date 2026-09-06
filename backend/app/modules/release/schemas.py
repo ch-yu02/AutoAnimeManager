@@ -15,6 +15,7 @@ class RawRelease:
     author: str | None
     category: str | None
     size_bytes: int | None = None
+    provider: str | None = None
 
 
 @dataclass(slots=True)

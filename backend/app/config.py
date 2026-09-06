@@ -53,10 +53,43 @@ class QBittorrentConfig(BaseModel):
     poll_interval_seconds: float = Field(default=3.0, ge=0.5, le=60)
 
 
+class ReleaseSourceConfig(BaseModel):
+    name: str
+    rss_url: str
+    rss_url_template: str
+    use_proxy: bool = False
+    enabled: bool = True
+
+
+def _default_release_sources() -> list[ReleaseSourceConfig]:
+    return [
+        ReleaseSourceConfig(
+            name="kisssub_rss",
+            rss_url="https://www.kisssub.org/rss.xml",
+            rss_url_template="https://www.kisssub.org/rss-{query}.xml",
+            use_proxy=False,
+        ),
+        ReleaseSourceConfig(
+            name="comicat_rss",
+            rss_url="https://www.comicat.org/rss.xml",
+            rss_url_template="https://www.comicat.org/rss-{query}.xml",
+            use_proxy=True,
+        ),
+        ReleaseSourceConfig(
+            name="acgnx_rss",
+            rss_url="https://share.acgnx.se/rss.xml",
+            rss_url_template="https://share.acgnx.se/rss-sort-1.xml?keyword={query}",
+            use_proxy=True,
+        ),
+    ]
+
+
 class ReleaseSearchConfig(BaseModel):
-    provider: Literal["kisssub_rss"] = "kisssub_rss"
+    # These legacy fields remain the canonical KissSub URLs for existing configs.
+    provider: Literal["multi_rss", "kisssub_rss"] = "multi_rss"
     rss_url: str = "https://www.kisssub.org/rss.xml"
     rss_url_template: str = "https://www.kisssub.org/rss-{query}.xml"
+    sources: list[ReleaseSourceConfig] = Field(default_factory=_default_release_sources)
     timeout: float = Field(default=15.0, gt=0, le=120)
     max_results: int = Field(default=100, ge=1, le=500)
     max_query_terms: int = Field(default=3, ge=1, le=10)
@@ -66,6 +99,11 @@ class ReleaseSearchConfig(BaseModel):
     preferred_codec: str = ""
     allow_batch: bool = False
     debug_auto_selection_enabled: bool = False
+
+    @field_validator("provider")
+    @classmethod
+    def normalize_legacy_provider(cls, value: str) -> str:
+        return "multi_rss" if value == "kisssub_rss" else value
 
 
 class PlayerConfig(BaseModel):

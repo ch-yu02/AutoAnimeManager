@@ -28,11 +28,28 @@ qbittorrent:
   poll_interval_seconds: 3
 
 release_search:
-  provider: kisssub_rss
-  # 根据 Bangumi 条目名称自动生成专属 RSS，不需要逐条维护链接。
+  provider: multi_rss
+  # 保留给旧配置使用，同时作为 KissSub 的地址设置。
   rss_url_template: https://www.kisssub.org/rss-{query}.xml
-  # rss_url 仅在 rss_url_template 留空时作为固定 RSS 使用。
   rss_url: https://www.kisssub.org/rss.xml
+  # KissSub 绕过系统代理；Comicat、AcgnX 使用 HTTP_PROXY/HTTPS_PROXY。
+  # 单个来源不可用时，其余来源仍可返回结果。
+  sources:
+    - name: kisssub_rss
+      rss_url: https://www.kisssub.org/rss.xml
+      rss_url_template: https://www.kisssub.org/rss-{query}.xml
+      use_proxy: false
+      enabled: true
+    - name: comicat_rss
+      rss_url: https://www.comicat.org/rss.xml
+      rss_url_template: https://www.comicat.org/rss-{query}.xml
+      use_proxy: true
+      enabled: true
+    - name: acgnx_rss
+      rss_url: https://share.acgnx.se/rss.xml
+      rss_url_template: https://share.acgnx.se/rss-sort-1.xml?keyword={query}
+      use_proxy: true
+      enabled: true
   timeout: 15
   max_results: 100
   # 自动尝试中文名、原名和 Bangumi aliases，避免站点关键词差异需要手工映射。

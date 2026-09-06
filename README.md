@@ -82,7 +82,7 @@ python scripts/dev.py
 - `bangumi.username` 与 `bangumi.access_token`
 - `storage.library_roots`
 - `qbittorrent.base_url`、用户名和密码
-- `release_search.rss_url_template`
+- `release_search.sources`（默认启用 KissSub、Comicat 和 AcgnX）
 
 客户端设置页可维护常用配置并测试 Bangumi、qBittorrent 和 `ffprobe` 连接。自动下载与自动清理默认关闭，建议先完成媒体扫描和人工审核后再启用。
 
@@ -97,7 +97,7 @@ export AUTOANIME_APP__PORT=9000
 export AUTOANIME_BANGUMI__ACCESS_TOKEN=your-token
 ```
 
-需要代理访问 Bangumi 时，在启动客户端的同一环境设置标准代理变量；Bangumi API 与 Qt 封面请求会共同使用它，本地 FastAPI 和 qBittorrent 仍保持直连：
+需要代理访问 Bangumi、Comicat 和 AcgnX 时，在启动客户端的同一环境设置标准代理变量。Bangumi API、Qt 封面请求、Comicat 和 AcgnX 会使用代理；KissSub、本地 FastAPI 和 qBittorrent 保持直连：
 
 ```bash
 export HTTP_PROXY=http://127.0.0.1:7890

@@ -43,3 +43,18 @@ def test_runtime_setup_does_not_create_missing_external_library_root(
 
     assert database.parent.is_dir()
     assert not missing_library.exists()
+
+
+def test_release_sources_have_expected_proxy_routing() -> None:
+    settings = AppSettings()
+    sources = {source.name: source for source in settings.release_search.sources}
+
+    assert sources["kisssub_rss"].use_proxy is False
+    assert sources["comicat_rss"].use_proxy is True
+    assert sources["acgnx_rss"].use_proxy is True
+
+
+def test_legacy_release_provider_enables_multi_source_search() -> None:
+    settings = AppSettings(release_search={"provider": "kisssub_rss"})
+
+    assert settings.release_search.provider == "multi_rss"

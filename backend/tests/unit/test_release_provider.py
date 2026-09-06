@@ -3,9 +3,11 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from backend.app.config import ReleaseSearchConfig
+from backend.app.config import ReleaseSearchConfig, ReleaseSourceConfig
+from backend.app.modules.release.provider import ReleaseProviderError
 from backend.app.modules.release.parser import parse_release
 from backend.app.modules.release.providers.kisssub import KissSubRSSProvider
+from backend.app.modules.release.providers.multi import MultiRSSProvider
 from backend.app.modules.release.schemas import RawRelease
 
 
@@ -42,6 +44,135 @@ async def test_kisssub_provider_parses_rss_enclosure_and_metadata() -> None:
     assert parsed.resolution == "1080p"
     assert parsed.codec == "HEVC"
     assert parsed.size_bytes == int(1.5 * 1024**3)
+
+
+@pytest.mark.anyio
+async def test_kisssub_provider_does_not_inherit_proxy_environment(monkeypatch) -> None:
+    captured_options: dict[str, object] = {}
+    async_client = httpx.AsyncClient
+
+    def create_client(**options):
+        captured_options.update(options)
+        return async_client(**options)
+
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+    monkeypatch.setattr(httpx, "AsyncClient", create_client)
+    provider = KissSubRSSProvider(
+        lambda: ReleaseSearchConfig(rss_url="https://rss.test/rss.xml", rss_url_template=""),
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, content=RSS)),
+    )
+
+    await provider.search(["测试动画"], 6)
+
+    assert captured_options["trust_env"] is False
+
+
+@pytest.mark.anyio
+async def test_proxy_source_inherits_proxy_environment(monkeypatch) -> None:
+    captured_options: dict[str, object] = {}
+    async_client = httpx.AsyncClient
+
+    def create_client(**options):
+        captured_options.update(options)
+        return async_client(**options)
+
+    monkeypatch.setattr(httpx, "AsyncClient", create_client)
+    source = ReleaseSourceConfig(
+        name="acgnx_rss",
+        rss_url="https://share.test/rss.xml",
+        rss_url_template="https://share.test/rss-sort-1.xml?keyword={query}",
+        use_proxy=True,
+    )
+    provider = KissSubRSSProvider(
+        lambda: ReleaseSearchConfig(),
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, content=RSS)),
+        source=source,
+    )
+
+    releases = await provider.search(["测试动画"], 6)
+
+    assert captured_options["trust_env"] is True
+    assert releases[0].provider == "acgnx_rss"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("source", "expected_url"),
+    [
+        (
+            ReleaseSourceConfig(
+                name="comicat_rss",
+                rss_url="https://www.comicat.org/rss.xml",
+                rss_url_template="https://www.comicat.org/rss-{query}.xml",
+                use_proxy=True,
+            ),
+            "https://www.comicat.org/rss-%E6%B5%8B%E8%AF%95%20%E5%8A%A8%E7%94%BB.xml",
+        ),
+        (
+            ReleaseSourceConfig(
+                name="acgnx_rss",
+                rss_url="https://share.acgnx.se/rss.xml",
+                rss_url_template="https://share.acgnx.se/rss-sort-1.xml?keyword={query}",
+                use_proxy=True,
+            ),
+            "https://share.acgnx.se/rss-sort-1.xml?keyword=%E6%B5%8B%E8%AF%95%20%E5%8A%A8%E7%94%BB",
+        ),
+    ],
+)
+async def test_additional_rss_source_builds_search_url(source, expected_url) -> None:
+    requested_urls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested_urls.append(str(request.url))
+        return httpx.Response(200, content=RSS)
+
+    provider = KissSubRSSProvider(
+        lambda: ReleaseSearchConfig(max_query_terms=1),
+        transport=httpx.MockTransport(handler),
+        source=source,
+    )
+
+    await provider.search(["测试 动画"], 6)
+
+    assert requested_urls == [expected_url]
+
+
+@pytest.mark.anyio
+async def test_multi_rss_provider_keeps_results_when_one_source_fails() -> None:
+    class Provider:
+        def __init__(self, name: str, result=None, error: Exception | None = None) -> None:
+            self.name = name
+            self.result = result or []
+            self.error = error
+
+        async def search(self, subject_names, episode_number):
+            if self.error is not None:
+                raise self.error
+            return self.result
+
+    release = RawRelease(
+        source_id="one",
+        title="[字幕组] 测试动画 - 06",
+        description="",
+        release_url="https://example.test/one",
+        magnet_uri="magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
+        published_at=None,
+        author=None,
+        category=None,
+        provider="acgnx_rss",
+    )
+    provider = MultiRSSProvider(
+        lambda: ReleaseSearchConfig(),
+        providers=[
+            Provider("comicat_rss", error=ReleaseProviderError("timeout")),
+            Provider("acgnx_rss", result=[release]),
+        ],
+    )
+
+    releases = await provider.search(["测试动画"], 6)
+
+    assert releases == [release]
 
 
 def test_release_parser_reads_part_and_combined_chinese_subtitles() -> None:

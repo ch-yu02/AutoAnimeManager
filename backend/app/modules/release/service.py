@@ -96,7 +96,7 @@ class ReleaseSearchService:
                     id=str(uuid.uuid4()),
                     search_id=search_id,
                     episode_id=episode_id,
-                    provider=self.provider.name,
+                    provider=raw.provider or self.provider.name,
                     title=raw.title,
                     description=raw.description,
                     release_url=raw.release_url,
