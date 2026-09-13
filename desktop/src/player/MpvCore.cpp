@@ -87,6 +87,11 @@ MpvCore::~MpvCore()
 
 void MpvCore::loadFile(const QString &path)
 {
+    if (m_videoWidth != 0 || m_videoHeight != 0) {
+        m_videoWidth = 0;
+        m_videoHeight = 0;
+        emit videoSizeChanged(0, 0);
+    }
     m_requestedPath = path;
     command({QStringLiteral("loadfile"), path, QStringLiteral("replace")});
 }
@@ -222,6 +227,17 @@ void MpvCore::handleEvent(mpv_event *event)
             const char *value = *static_cast<char **>(property->data);
             m_hwdec = value == nullptr ? QString{} : QString::fromUtf8(value);
             emit diagnosticsChanged(m_hwdec, m_droppedFrames);
+        } else if (std::strcmp(property->name, "video-params") == 0
+                   && property->format == MPV_FORMAT_NODE && property->data != nullptr) {
+            const auto &parameters = *static_cast<mpv_node *>(property->data);
+            const int width = nodeInteger(parameters, "dw", nodeInteger(parameters, "w", 0));
+            const int height = nodeInteger(parameters, "dh", nodeInteger(parameters, "h", 0));
+            if (width > 0 && height > 0
+                && (width != m_videoWidth || height != m_videoHeight)) {
+                m_videoWidth = width;
+                m_videoHeight = height;
+                emit videoSizeChanged(width, height);
+            }
         } else if (std::strcmp(property->name, "track-list") == 0 && property->format == MPV_FORMAT_NODE && property->data != nullptr) {
             refreshTrackList();
         } else if (std::strcmp(property->name, "aid") == 0 || std::strcmp(property->name, "sid") == 0) {
@@ -262,6 +278,7 @@ void MpvCore::observeProperties()
     mpv_observe_property(m_handle, 9, "speed", MPV_FORMAT_DOUBLE);
     mpv_observe_property(m_handle, 10, "decoder-frame-drop-count", MPV_FORMAT_INT64);
     mpv_observe_property(m_handle, 11, "hwdec-current", MPV_FORMAT_STRING);
+    mpv_observe_property(m_handle, 12, "video-params", MPV_FORMAT_NODE);
 }
 
 void MpvCore::refreshTrackList()

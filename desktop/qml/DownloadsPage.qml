@@ -6,6 +6,7 @@ import AutoAnime 1.0
 Page {
     id: root
     signal openSubject(int id)
+    signal replaceSource(var job)
     property var pendingDeleteJob: null
 
     function stateText(state) {
@@ -106,6 +107,14 @@ Page {
                                 visible: modelData.state === "FAILED"
                                 enabled: !(backend.activities.downloadMutating || false)
                                 onClicked: backend.retryDownload(modelData.id)
+                            }
+                            AppButton {
+                                text: "更换片源"
+                                iconName: "refresh-cw"
+                                visible: modelData.can_replace_source === true
+                                    && (modelData.episode_ids || []).length === 1
+                                enabled: !(backend.activities.downloadMutating || false)
+                                onClicked: root.replaceSource(modelData)
                             }
                             IconButton {
                                 iconName: "trash-2"

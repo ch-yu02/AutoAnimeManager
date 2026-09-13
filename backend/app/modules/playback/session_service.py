@@ -52,11 +52,12 @@ class PlaybackSessionService:
         self._sessions: dict[str, PlaybackSession] = {}
         self._active_id: str | None = None
         self._lock = asyncio.Lock()
+        self._writeback_tasks: set[asyncio.Task[None]] = set()
 
     async def create(self, episode_id: int, *, from_start: bool = False) -> dict[str, object]:
         episode, media = self.state_service.playable_media(episode_id)
         state = self.state_service.begin(episode.id, media.id)
-        initial_position = 0.0 if from_start else float(state["position_seconds"] or 0.0)
+        initial_position = self._resume_position(state, from_start=from_start)
         subject_title = ""
         subject_id = getattr(episode, "subject_id", None)
         if subject_id is not None:
@@ -85,6 +86,19 @@ class PlaybackSessionService:
             self._active_id = session.session_id
         return session.view()
 
+    @staticmethod
+    def _resume_position(state: dict[str, object], *, from_start: bool) -> float:
+        if from_start:
+            return 0.0
+        position = max(0.0, float(state.get("position_seconds") or 0.0))
+        duration_value = state.get("duration_seconds")
+        duration = float(duration_value) if duration_value else 0.0
+        # EOF is stored as position == duration. Seeking back to that value
+        # makes mpv immediately end the newly opened file.
+        if duration > 0.0 and position >= max(0.0, duration - 1.0):
+            return 0.0
+        return position
+
     async def progress(
         self,
         session_id: str,
@@ -102,7 +116,7 @@ class PlaybackSessionService:
             ended=ended,
         )
         if state["watched"] and not session.writeback_sent:
-            session.writeback_sent = await self._writeback(session.episode_id, True)
+            self._schedule_writeback(session, True)
         next_item = self.state_service.next_playable(session.episode_id) if ended else None
         return {
             "session_id": session_id,
@@ -118,6 +132,13 @@ class PlaybackSessionService:
             if self._active_id == session_id:
                 self._active_id = None
         return {"status": "closed", "session_id": session_id}
+
+    async def stop(self) -> None:
+        tasks = tuple(self._writeback_tasks)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     def get(self, session_id: str) -> PlaybackSession:
         return self._require(session_id)
@@ -141,6 +162,29 @@ class PlaybackSessionService:
         if session is None:
             raise LookupError("playback_session_not_found")
         return session
+
+    def _schedule_writeback(self, session: PlaybackSession, watched: bool) -> None:
+        # Local progress must be acknowledged immediately. Bangumi may be slow
+        # or temporarily unreachable, and the regular sync retries local state.
+        session.writeback_sent = True
+        task = asyncio.create_task(
+            self._complete_writeback(session.session_id, session.episode_id, watched)
+        )
+        self._writeback_tasks.add(task)
+        task.add_done_callback(self._writeback_tasks.discard)
+
+    async def _complete_writeback(
+        self,
+        session_id: str,
+        episode_id: int,
+        watched: bool,
+    ) -> None:
+        succeeded = await self._writeback(episode_id, watched)
+        if succeeded:
+            return
+        session = self._sessions.get(session_id)
+        if session is not None:
+            session.writeback_sent = False
 
     async def _writeback(self, episode_id: int, watched: bool) -> bool:
         if (

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autoanime"
-version = "0.2.2"
+version = "0.3.0"
 description = "Bangumi 自动追番与本地播放管理器"
 readme = "README.md"
 requires-python = ">=3.12"

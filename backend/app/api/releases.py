@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from backend.app.modules.download.magnet import InvalidMagnet
@@ -53,9 +53,15 @@ async def debug_auto_select(search_id: str, request: Request) -> dict[str, objec
 
 
 @router.post("/candidates/{candidate_id}/download", status_code=status.HTTP_202_ACCEPTED)
-async def download_release_candidate(candidate_id: str, request: Request) -> dict[str, object]:
+async def download_release_candidate(
+    candidate_id: str,
+    request: Request,
+    replacement_job_id: str | None = Query(default=None),
+) -> dict[str, object]:
     try:
-        return await _service(request).download_candidate(candidate_id)
+        return await _service(request).download_candidate(
+            candidate_id, replacement_job_id=replacement_job_id
+        )
     except ReleaseCandidateNotFound as exc:
         raise HTTPException(404, detail={"code": "release_candidate_not_found", "message": str(exc)}) from exc
     except ReleaseNotDownloadable as exc:

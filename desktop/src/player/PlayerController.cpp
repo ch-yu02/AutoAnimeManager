@@ -29,7 +29,11 @@ PlayerController::PlayerController(MpvCore *core, BackendClient *backend, QObjec
         if (sessionId == m_sessionId && watched && m_episodeId >= 0) {
             emit watchedChanged(m_episodeId, true);
         }
-        if (requestId != 0 && requestId == m_transitionRequestId && sessionId == m_sessionId) {
+        const bool completesTransition = requestId != 0
+            && requestId == m_transitionRequestId
+            && sessionId == m_sessionId;
+        finishProgressSave(requestId, sessionId, !completesTransition);
+        if (completesTransition) {
             finishTransition(nextEpisodeId);
         }
     });
@@ -253,9 +257,77 @@ void PlayerController::savePeriodicProgress()
 
 void PlayerController::saveProgress(bool ended)
 {
-    if (!m_sessionId.isEmpty()) {
-        m_backend->savePlaybackProgress(m_sessionId, m_position, m_duration, ended);
+    queueProgressSave(ended);
+}
+
+void PlayerController::queueProgressSave(bool ended, quint64 requestId)
+{
+    if (m_sessionId.isEmpty()) {
+        return;
     }
+    if (m_progressSaveInFlight) {
+        m_progressSavePending = true;
+        m_pendingProgressPosition = m_position;
+        m_pendingProgressDuration = m_duration;
+        m_pendingProgressEnded = m_pendingProgressEnded || ended;
+        if (requestId != 0) {
+            m_pendingProgressRequestId = requestId;
+        }
+        return;
+    }
+    startProgressSave(m_position, m_duration, ended, requestId);
+}
+
+void PlayerController::startProgressSave(
+    double position,
+    double duration,
+    bool ended,
+    quint64 requestId
+)
+{
+    if (requestId == 0) {
+        requestId = ++m_progressRequestGeneration;
+    }
+    m_progressSaveInFlight = true;
+    m_activeProgressRequestId = requestId;
+    m_activeProgressSessionId = m_sessionId;
+    m_backend->savePlaybackProgress(
+        m_sessionId,
+        position,
+        duration,
+        ended,
+        requestId
+    );
+}
+
+void PlayerController::finishProgressSave(
+    quint64 requestId,
+    const QString &sessionId,
+    bool sendPending
+)
+{
+    if (!m_progressSaveInFlight
+        || requestId != m_activeProgressRequestId
+        || sessionId != m_activeProgressSessionId) {
+        return;
+    }
+    m_progressSaveInFlight = false;
+    m_activeProgressRequestId = 0;
+    m_activeProgressSessionId.clear();
+    if (!sendPending || !m_progressSavePending || m_sessionId.isEmpty()) {
+        m_progressSavePending = false;
+        m_pendingProgressEnded = false;
+        m_pendingProgressRequestId = 0;
+        return;
+    }
+    const double position = m_pendingProgressPosition;
+    const double duration = m_pendingProgressDuration;
+    const bool ended = m_pendingProgressEnded;
+    const quint64 pendingRequestId = m_pendingProgressRequestId;
+    m_progressSavePending = false;
+    m_pendingProgressEnded = false;
+    m_pendingProgressRequestId = 0;
+    startProgressSave(position, duration, ended, pendingRequestId);
 }
 
 void PlayerController::closeSession()
@@ -282,6 +354,12 @@ void PlayerController::resetSession()
     m_duration = 0.0;
     m_hasBackendDuration = false;
     m_waitingForFile = false;
+    m_progressSaveInFlight = false;
+    m_progressSavePending = false;
+    m_pendingProgressEnded = false;
+    m_pendingProgressRequestId = 0;
+    m_activeProgressRequestId = 0;
+    m_activeProgressSessionId.clear();
 }
 
 void PlayerController::updatePlaybackActivity()
@@ -314,13 +392,7 @@ void PlayerController::requestTransition(int transition, bool ended)
         return;
     }
     m_transitionRequestId = ++m_progressRequestGeneration;
-    m_backend->savePlaybackProgress(
-        m_sessionId,
-        m_position,
-        m_duration,
-        ended,
-        m_transitionRequestId
-    );
+    queueProgressSave(ended, m_transitionRequestId);
 }
 
 void PlayerController::finishTransition(qint64 nextEpisodeId)
@@ -347,12 +419,17 @@ void PlayerController::finishTransition(qint64 nextEpisodeId)
 
 void PlayerController::onBackendError(quint64 requestId, const QString &operation, const QString &message)
 {
-    if (operation == QStringLiteral("创建播放会话") || operation == QStringLiteral("保存播放进度")) {
-        emit playbackError(QStringLiteral("%1：%2").arg(operation, message));
+    if (operation == QStringLiteral("保存播放进度")) {
+        emit playbackWarning(QStringLiteral("播放进度暂未保存，将在播放过程中重试"));
+        const bool failedTransition = requestId != 0 && requestId == m_transitionRequestId;
+        finishProgressSave(requestId, m_activeProgressSessionId, !failedTransition);
+        if (failedTransition) {
+            finishTransition();
+        }
+        return;
     }
-    if (requestId != 0 && requestId == m_transitionRequestId) {
-        finishTransition();
-    } else if (operation == QStringLiteral("创建播放会话") && requestId == m_requestGeneration) {
+    if (operation == QStringLiteral("准备播放") && requestId == m_requestGeneration) {
+        emit playbackError(QStringLiteral("%1：%2").arg(operation, message));
         const qint64 episodeId = m_episodeId;
         m_core->stop();
         resetSession();

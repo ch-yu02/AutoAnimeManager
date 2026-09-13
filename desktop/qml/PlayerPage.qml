@@ -69,14 +69,14 @@ Page {
     HoverHandler {
         id: playerHover
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-        cursorShape: root.controlsVisible || player.paused ? Qt.ArrowCursor : Qt.BlankCursor
+        cursorShape: root.controlsVisible ? Qt.ArrowCursor : Qt.BlankCursor
         onPointChanged: root.handlePointerPosition(point.position.x, point.position.y)
     }
 
     MouseArea {
         anchors.fill: parent
         acceptedButtons: Qt.LeftButton
-        cursorShape: root.controlsVisible || player.paused ? Qt.ArrowCursor : Qt.BlankCursor
+        cursorShape: root.controlsVisible ? Qt.ArrowCursor : Qt.BlankCursor
         onClicked: { player.togglePause(); root.revealControls() }
         onDoubleClicked: root.toggleFullscreen()
     }
@@ -85,8 +85,8 @@ Page {
 
     Rectangle {
         anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
-        height: Metrics.pageHeaderHeight
-        opacity: root.controlsVisible || player.paused ? 1 : 0
+        height: 64
+        opacity: root.controlsVisible ? 1 : 0
         visible: opacity > 0
         gradient: Gradient { GradientStop { position: 0; color: Qt.rgba(0, 0, 0, 0.82) } GradientStop { position: 1; color: "transparent" } }
         RowLayout {
@@ -106,7 +106,7 @@ Page {
 
     AppButton {
         anchors.centerIn: parent
-        visible: player.paused && !player.loading
+        visible: root.controlsVisible && player.paused && !player.loading
         width: 64
         height: 64
         text: ""
@@ -117,18 +117,18 @@ Page {
 
     Rectangle {
         anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
-        height: 120
-        opacity: root.controlsVisible || player.paused ? 1 : 0
+        height: 88
+        opacity: root.controlsVisible ? 1 : 0
         visible: opacity > 0
-        gradient: Gradient { GradientStop { position: 0; color: "transparent" } GradientStop { position: 1; color: Qt.rgba(0, 0, 0, 0.88) } }
+        color: "transparent"
         Rectangle {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             anchors.leftMargin: Metrics.space4
             anchors.rightMargin: Metrics.space4
-            anchors.bottomMargin: Metrics.space3
-            height: 76
+            anchors.bottomMargin: Metrics.space2
+            height: 64
             radius: Metrics.radiusM
             color: Qt.rgba(3 / 255, 4 / 255, 5 / 255, 0.82)
             border.width: 1
@@ -137,13 +137,13 @@ Page {
                 anchors.fill: parent
                 anchors.leftMargin: Metrics.space2
                 anchors.rightMargin: Metrics.space2
-                anchors.topMargin: Metrics.space1
-                anchors.bottomMargin: Metrics.space1
+                anchors.topMargin: 4
+                anchors.bottomMargin: 4
                 spacing: 0
                 PlayerSlider {
                     id: timeline
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 20
+                    Layout.preferredHeight: 16
                     from: 0; to: Math.max(1, player.duration)
                     value: 0
                     onPressedChanged: {
@@ -178,31 +178,92 @@ Page {
     Rectangle {
         visible: player.error.length > 0
         anchors.centerIn: parent
-        width: Math.min(errorLabel.implicitWidth + Metrics.space12, parent.width - Metrics.space16)
-        height: errorLabel.implicitHeight + Metrics.space8
+        width: Math.min(errorContent.implicitWidth + Metrics.space8, parent.width - Metrics.space16)
+        height: errorContent.implicitHeight + Metrics.space6
         radius: Metrics.radiusM
         color: Theme.surfaceRaised
         border.width: 1
         border.color: Theme.danger
-        Label { id: errorLabel; anchors.centerIn: parent; text: player.error; color: Theme.textPrimary; wrapMode: Text.Wrap }
+        z: 20
+        RowLayout {
+            id: errorContent
+            anchors.fill: parent
+            anchors.margins: Metrics.space3
+            spacing: Metrics.space3
+            Label {
+                Layout.fillWidth: true
+                text: player.error
+                color: Theme.textPrimary
+                wrapMode: Text.Wrap
+            }
+            IconButton {
+                iconName: "x"
+                tooltip: "关闭"
+                onClicked: player.dismissError()
+            }
+        }
     }
 
-    Timer { id: hideTimer; interval: 2500; onTriggered: if (!player.paused) root.controlsVisible = false }
+    Rectangle {
+        visible: player.warning.length > 0
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.margins: Metrics.space6
+        width: Math.min(warningContent.implicitWidth + Metrics.space8, parent.width - Metrics.space12)
+        height: warningContent.implicitHeight + Metrics.space4
+        radius: Metrics.radiusM
+        color: Qt.rgba(3 / 255, 4 / 255, 5 / 255, 0.9)
+        border.width: 1
+        border.color: Theme.warning
+        z: 20
+        RowLayout {
+            id: warningContent
+            anchors.fill: parent
+            anchors.leftMargin: Metrics.space3
+            anchors.rightMargin: Metrics.space2
+            spacing: Metrics.space2
+            Label {
+                Layout.fillWidth: true
+                text: player.warning
+                color: "white"
+                font.pixelSize: Typography.meta
+                wrapMode: Text.Wrap
+            }
+            IconButton {
+                iconName: "x"
+                foreground: "white"
+                tooltip: "关闭"
+                onClicked: player.dismissWarning()
+            }
+        }
+    }
+
+    Timer { id: hideTimer; interval: 2500; onTriggered: root.controlsVisible = false }
+    Timer { id: warningTimer; interval: 5000; onTriggered: player.dismissWarning() }
     FileDialog { id: subtitleDialog; title: "选择字幕"; nameFilters: ["字幕文件 (*.ass *.ssa *.srt *.vtt *.sup)", "所有文件 (*)"]; onAccepted: player.addSubtitle(selectedFile) }
-    Shortcut { sequence: "Space"; onActivated: { player.togglePause(); root.revealControls() } }
-    Shortcut { sequence: "Left"; onActivated: { player.seekRelative(-5); root.revealControls() } }
-    Shortcut { sequence: "Right"; onActivated: { player.seekRelative(5); root.revealControls() } }
-    Shortcut { sequence: "Ctrl+Right"; onActivated: { player.seekRelative(85); root.revealControls() } }
-    Shortcut { sequence: "Up"; onActivated: { player.setVolume(Math.min(100, player.volume + 5)); root.revealControls() } }
-    Shortcut { sequence: "Down"; onActivated: { player.setVolume(Math.max(0, player.volume - 5)); root.revealControls() } }
+    Shortcut { sequence: "Space"; onActivated: player.togglePause() }
+    Shortcut { sequence: "Left"; onActivated: player.seekRelative(-5) }
+    Shortcut { sequence: "Right"; onActivated: player.seekRelative(5) }
+    Shortcut { sequence: "Ctrl+Right"; onActivated: player.seekRelative(85) }
+    Shortcut { sequence: "Up"; onActivated: player.setVolume(Math.min(100, player.volume + 5)) }
+    Shortcut { sequence: "Down"; onActivated: player.setVolume(Math.max(0, player.volume - 5)) }
     Shortcut { sequence: "M"; onActivated: player.toggleMute() }
     Shortcut { sequence: "F"; onActivated: root.toggleFullscreen() }
-    Shortcut { sequence: "Escape"; enabled: ApplicationWindow.window.visibility === Window.FullScreen; onActivated: root.exitFullscreen() }
+    Shortcut {
+        sequence: "Escape"
+        enabled: ApplicationWindow.window !== null
+            && ApplicationWindow.window.visibility === Window.FullScreen
+        onActivated: root.exitFullscreen()
+    }
     Shortcut { sequence: "Ctrl+O"; onActivated: subtitleDialog.open() }
 
     Connections {
         target: player
         function onPositionChanged() { if (!timeline.pressed) timeline.value = player.position }
+        function onWarningChanged() {
+            if (player.warning.length > 0) warningTimer.restart()
+            else warningTimer.stop()
+        }
         function onPlaybackEnded(episodeId, nextEpisodeId) {
             const settingsPlayer = backend.settings.player || {}
             if (settingsPlayer.auto_play_next && nextEpisodeId > 0) player.play(nextEpisodeId, false)

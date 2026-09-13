@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -80,6 +81,23 @@ async def test_ended_session_reports_strict_next_playable_episode() -> None:
 
 
 @pytest.mark.anyio
+async def test_completed_episode_resumes_from_start_instead_of_eof() -> None:
+    class CompletedStateService(FakeStateService):
+        def begin(self, episode_id: int, media_file_id: int):
+            return {
+                "position_seconds": 1440.0,
+                "duration_seconds": 1440.0,
+                "watched": True,
+            }
+
+    service = PlaybackSessionService(CompletedStateService())
+
+    resumed = await service.create(1)
+
+    assert resumed["initial_position_seconds"] == 0
+
+
+@pytest.mark.anyio
 async def test_state_queries_and_writeback_remain_available() -> None:
     states = FakeStateService()
     writes: list[tuple[int, bool]] = []
@@ -95,6 +113,7 @@ async def test_state_queries_and_writeback_remain_available() -> None:
     marked = await service.mark_watched(1, False)
     current = await service.create(1)
     await service.progress(current["session_id"], 1440, 1440, ended=True)
+    await asyncio.sleep(0)
 
     assert marked["watched"] is False
     assert writes == [(1, False), (1, True)]
@@ -116,6 +135,33 @@ async def test_automatic_writeback_retries_after_a_transient_failure() -> None:
     current = await service.create(1)
 
     await service.progress(current["session_id"], 1440, 1440, ended=True)
+    await asyncio.sleep(0)
     await service.progress(current["session_id"], 1440, 1440, ended=True)
+    await asyncio.sleep(0)
 
     assert attempts == 2
+
+
+@pytest.mark.anyio
+async def test_progress_response_does_not_wait_for_bangumi_writeback() -> None:
+    states = FakeStateService()
+    writeback_started = asyncio.Event()
+    release_writeback = asyncio.Event()
+
+    async def writeback(_episode_id: int, _watched: bool) -> None:
+        writeback_started.set()
+        await release_writeback.wait()
+
+    settings = SimpleNamespace(bangumi_writeback_enabled=True)
+    service = PlaybackSessionService(states, lambda: settings, writeback)
+    current = await service.create(1)
+
+    progress = await asyncio.wait_for(
+        service.progress(current["session_id"], 1440, 1440, ended=True),
+        timeout=0.1,
+    )
+
+    assert progress["watched"] is True
+    await asyncio.wait_for(writeback_started.wait(), timeout=0.1)
+    release_writeback.set()
+    await service.stop()

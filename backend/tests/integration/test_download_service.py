@@ -260,6 +260,9 @@ async def test_successful_replacement_deletes_old_ani_media_but_retains_job_hist
     assert replacement.exists()
     assert {item["torrent_hash"] for item in adapter.deleted} == {old_hash}
     assert all(item["delete_files"] is False for item in adapter.deleted)
+    jobs = {item["id"]: item for item in service.list()}
+    assert jobs["old-ani-job"]["can_replace_source"] is False
+    assert jobs[str(created["id"])]["can_replace_source"] is True
     with session_scope() as session:
         assert session.get(DownloadJob, "old-ani-job") is not None
         old_link = session.scalar(select(DownloadJobEpisode).where(
@@ -272,6 +275,49 @@ async def test_successful_replacement_deletes_old_ani_media_but_retains_job_hist
         assert mapping is not None
         current = session.get(MediaFile, mapping.media_file_id)
         assert current is not None and current.filename == replacement.name
+    await service.stop()
+    _reset()
+
+
+@pytest.mark.anyio
+async def test_manual_replacement_accepts_non_ani_media_and_removes_it_after_import(
+    tmp_path: Path, monkeypatch
+) -> None:
+    download, _, episode_id, _ = _prepare(tmp_path, monkeypatch)
+    old_path = download / "[OldGroup] 测试动画 - 01.mkv"
+    old_path.write_bytes(b"wrong-video")
+    replacement = download / "[NewGroup] 测试动画 - 01.mkv"
+    replacement.write_bytes(b"correct-video")
+    with session_scope() as session:
+        episode = session.get(Episode, episode_id)
+        assert episode is not None
+        media = MediaFile(
+            path=str(old_path), filename=old_path.name, file_size=old_path.stat().st_size,
+            mtime_ns=old_path.stat().st_mtime_ns, exists=True, ignored=False,
+            subject_id=episode.subject_id, parse_result='{"release_group":"OldGroup"}',
+            last_scanned_at=datetime.now(UTC),
+        )
+        session.add(media)
+        session.flush()
+        session.add(EpisodeFile(
+            episode_id=episode.id, media_file_id=media.id, mapping_source="DOWNLOAD_JOB",
+            confidence=1, is_primary=True,
+        ))
+        media_id = media.id
+    service = DownloadService(adapter=FakeQBittorrent([
+        {"name": replacement.name, "progress": 1, "priority": 1},
+    ]))
+
+    created = await service.create(
+        episode_id,
+        "7" * 40,
+        replacement_media_ids=[media_id],
+    )
+    result = await _terminal(service, str(created["id"]))
+
+    assert result["state"] == "IMPORTED"
+    assert not old_path.exists()
+    assert replacement.exists()
     await service.stop()
     _reset()
 

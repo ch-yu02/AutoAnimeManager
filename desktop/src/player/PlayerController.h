@@ -45,6 +45,7 @@ signals:
     void playbackEnded(qint64 episodeId, qint64 nextEpisodeId);
     void playbackStopped(qint64 episodeId);
     void playbackError(const QString &message);
+    void playbackWarning(const QString &message);
     void watchedChanged(qint64 episodeId, bool watched);
     void playbackActivityChanged(bool active);
 
@@ -73,6 +74,14 @@ private slots:
 
 private:
     void saveProgress(bool ended = false);
+    void queueProgressSave(bool ended, quint64 requestId = 0);
+    void startProgressSave(
+        double position,
+        double duration,
+        bool ended,
+        quint64 requestId
+    );
+    void finishProgressSave(quint64 requestId, const QString &sessionId, bool sendPending = true);
     void closeSession();
     void resetSession();
     void startEpisode(qint64 episodeId, bool fromStart);
@@ -101,9 +110,17 @@ private:
     quint64 m_requestGeneration{0};
     quint64 m_progressRequestGeneration{0};
     quint64 m_transitionRequestId{0};
+    quint64 m_activeProgressRequestId{0};
     int m_pendingTransition{0};
     qint64 m_pendingEpisodeId{-1};
     bool m_pendingFromStart{false};
+    bool m_progressSaveInFlight{false};
+    bool m_progressSavePending{false};
+    bool m_pendingProgressEnded{false};
+    quint64 m_pendingProgressRequestId{0};
+    double m_pendingProgressPosition{0.0};
+    double m_pendingProgressDuration{0.0};
+    QString m_activeProgressSessionId;
 };
 
 } // namespace autoanime

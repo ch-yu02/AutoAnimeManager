@@ -28,6 +28,8 @@ public:
     [[nodiscard]] double duration() const noexcept { return m_duration; }
     [[nodiscard]] double volume() const noexcept { return m_volume; }
     [[nodiscard]] double speed() const noexcept { return m_speed; }
+    [[nodiscard]] int videoWidth() const noexcept { return m_videoWidth; }
+    [[nodiscard]] int videoHeight() const noexcept { return m_videoHeight; }
 
     void loadFile(const QString &path);
     void setPaused(bool paused);
@@ -52,6 +54,7 @@ signals:
     void muteChanged(bool muted);
     void speedChanged(double value);
     void diagnosticsChanged(const QString &hwdec, qint64 droppedFrames);
+    void videoSizeChanged(int width, int height);
     void trackListChanged(const QList<autoanime::MediaTrack> &tracks);
     void endFile(int reason, const QString &detail);
     void playbackError(const QString &message);
@@ -81,6 +84,8 @@ private:
     double m_speed{1.0};
     qint64 m_droppedFrames{0};
     QString m_hwdec;
+    int m_videoWidth{0};
+    int m_videoHeight{0};
     bool m_paused{false};
     bool m_muted{false};
 };

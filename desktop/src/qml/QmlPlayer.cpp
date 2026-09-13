@@ -2,6 +2,7 @@
 
 #include "player/MpvCore.h"
 #include "player/PlayerController.h"
+#include "player/PlayerState.h"
 
 #include <QFileInfo>
 #include <QUrl>
@@ -57,6 +58,11 @@ QmlPlayer::QmlPlayer(PlayerController *controller, MpvCore *core, QObject *paren
         m_droppedFrames = dropped;
         emit diagnosticsChanged();
     });
+    connect(core, &MpvCore::videoSizeChanged, this, [this](int width, int height) {
+        m_videoWidth = width;
+        m_videoHeight = height;
+        emit videoSizeChanged();
+    });
     connect(controller, &PlayerController::trackListChanged, this, [this](const QList<MediaTrack> &tracks) {
         m_audioTracks.clear();
         m_subtitleTracks.clear();
@@ -80,6 +86,10 @@ QmlPlayer::QmlPlayer(PlayerController *controller, MpvCore *core, QObject *paren
         emit errorChanged();
         emit loadingChanged();
     });
+    connect(controller, &PlayerController::playbackWarning, this, [this](const QString &value) {
+        m_warning = value;
+        emit warningChanged();
+    });
     connect(controller, &PlayerController::playbackEnded, this, &QmlPlayer::playbackEnded);
     connect(controller, &PlayerController::playbackStopped, this, [this](qint64 episodeId) {
         m_episodeId = -1;
@@ -102,8 +112,10 @@ void QmlPlayer::play(qint64 episodeId, bool fromStart)
         return;
     }
     m_error.clear();
+    m_warning.clear();
     m_loading = true;
     emit errorChanged();
+    emit warningChanged();
     emit loadingChanged();
     m_controller->playEpisode(episodeId, fromStart);
 }
@@ -130,5 +142,43 @@ void QmlPlayer::addSubtitle(const QUrl &url)
 }
 
 void QmlPlayer::stop() { m_controller->stop(); }
+
+void QmlPlayer::dismissError()
+{
+    if (!m_error.isEmpty()) {
+        m_error.clear();
+        emit errorChanged();
+    }
+}
+
+void QmlPlayer::dismissWarning()
+{
+    if (!m_warning.isEmpty()) {
+        m_warning.clear();
+        emit warningChanged();
+    }
+}
+
+QVariantMap QmlPlayer::suggestedWindowSize(
+    int availableWidth,
+    int availableHeight,
+    double devicePixelRatio
+) const
+{
+    const QSize size = fitVideoWindowSize(
+        m_videoWidth,
+        m_videoHeight,
+        availableWidth,
+        availableHeight,
+        0.9,
+        640,
+        360,
+        devicePixelRatio
+    );
+    return {
+        {QStringLiteral("width"), size.width()},
+        {QStringLiteral("height"), size.height()},
+    };
+}
 
 } // namespace autoanime

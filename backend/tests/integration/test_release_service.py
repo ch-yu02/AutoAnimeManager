@@ -12,7 +12,16 @@ from alembic.config import Config
 from sqlalchemy import select
 
 from backend.app.config import ReleaseSearchConfig, get_settings
-from backend.app.database.models import Episode, EpisodeFile, MediaFile, ReleaseCandidate, Subject, SubjectRelation
+from backend.app.database.models import (
+    DownloadJob,
+    DownloadJobEpisode,
+    Episode,
+    EpisodeFile,
+    MediaFile,
+    ReleaseCandidate,
+    Subject,
+    SubjectRelation,
+)
 from backend.app.database.session import get_engine, session_scope
 from backend.app.modules.release.schemas import RawRelease
 from backend.app.modules.release.service import ReleaseSearchService
@@ -132,6 +141,67 @@ async def test_search_persists_candidates_and_selection(tmp_path: Path, monkeypa
         assert len(list(session.scalars(
             select(ReleaseCandidate).where(ReleaseCandidate.episode_id == episode_id)
         ))) == 2
+    _reset()
+
+
+@pytest.mark.anyio
+async def test_manual_replacement_uses_media_imported_by_selected_job(
+    tmp_path: Path, monkeypatch
+) -> None:
+    episode_id = _prepare(tmp_path, monkeypatch)
+    downloads = FakeDownloadService()
+    service = ReleaseSearchService(
+        FakeProvider([_raw(
+            "corrected-source",
+            "[NewGroup] 测试动画 - 06 [1080p][CHS]",
+            "9",
+        )]),
+        downloads,
+        lambda: SimpleNamespace(release_search=ReleaseSearchConfig()),
+    )
+    result = await service.search(episode_id)
+    with session_scope() as session:
+        episode = session.get(Episode, episode_id)
+        assert episode is not None
+        job = DownloadJob(
+            id="wrong-source-job",
+            magnet_uri="magnet:?xt=urn:btih:" + "8" * 40,
+            magnet_hash="8" * 40,
+            torrent_hash="8" * 40,
+            subject_id=episode.subject_id,
+            progress=1,
+            state="IMPORTED",
+            save_path=str(tmp_path),
+        )
+        session.add(job)
+        session.add(DownloadJobEpisode(job_id=job.id, episode_id=episode.id))
+        media = MediaFile(
+            path=str(tmp_path / "wrong.mkv"),
+            filename="[WrongGroup] 测试动画 - 06.mkv",
+            file_size=1,
+            mtime_ns=1,
+            exists=True,
+            ignored=False,
+            subject_id=episode.subject_id,
+            last_scanned_at=datetime.now(UTC),
+        )
+        session.add(media)
+        session.flush()
+        session.add(EpisodeFile(
+            episode_id=episode.id,
+            media_file_id=media.id,
+            mapping_source="DOWNLOAD_JOB",
+            confidence=1,
+            reasons=json.dumps([f"下载任务 {job.id} 直接关联"], ensure_ascii=False),
+            is_primary=True,
+        ))
+        media_id = media.id
+
+    await service.download_candidate(
+        result["candidates"][0]["id"], replacement_job_id="wrong-source-job"
+    )
+
+    assert downloads.created[0][2] == [media_id]
     _reset()
 
 

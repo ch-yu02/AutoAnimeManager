@@ -25,7 +25,6 @@ from backend.app.modules.download.importer import FileImporter, ImportFailure, s
 from backend.app.modules.download.magnet import normalize_magnet
 from backend.app.modules.download.qbittorrent import QBittorrentAdapter, QBittorrentError
 from backend.app.modules.library.matcher import refresh_episode_statuses
-from backend.app.modules.release_preferences import is_ani_group, media_release_group
 from backend.app.modules.library.scanner import delete_media_record, refresh_primary_conflicts
 
 
@@ -104,11 +103,6 @@ class DownloadService:
                     raise EpisodeNotDownloadable("Episode 已有可播放的本地文件")
                 if requested_replacements and ready_ids != requested_replacements:
                     raise EpisodeNotDownloadable("替换目标与 Episode 当前媒体不一致")
-                if requested_replacements and not all(
-                    is_ani_group(media_release_group(media.parse_result, media.filename))
-                    for media in ready_files
-                ):
-                    raise EpisodeNotDownloadable("自动替换仅允许处理 ANi 临时资源")
                 if requested_replacements:
                     shared = session.scalar(
                         select(EpisodeFile.id).where(
@@ -201,13 +195,26 @@ class DownloadService:
             for subject in session.scalars(select(Subject).where(Subject.id.in_(subject_ids)))
         }
         episodes_by_job: dict[str, list[Episode]] = {job.id: [] for job in jobs}
-        for job_id, episode in session.execute(
-            select(DownloadJobEpisode.job_id, Episode)
+        episode_ids_by_job: dict[str, set[int]] = {job.id: set() for job in jobs}
+        replaceable_job_ids: set[str] = set()
+        for job_id, episode, media_id, reasons in session.execute(
+            select(DownloadJobEpisode.job_id, Episode, MediaFile.id, EpisodeFile.reasons)
             .join(Episode, DownloadJobEpisode.episode_id == Episode.id)
+            .outerjoin(EpisodeFile, EpisodeFile.episode_id == Episode.id)
+            .outerjoin(
+                MediaFile,
+                (MediaFile.id == EpisodeFile.media_file_id)
+                & MediaFile.exists.is_(True)
+                & MediaFile.ignored.is_(False),
+            )
             .where(DownloadJobEpisode.job_id.in_(episodes_by_job))
             .order_by(DownloadJobEpisode.job_id, Episode.sort_number, Episode.id)
         ):
-            episodes_by_job[job_id].append(episode)
+            if episode.id not in episode_ids_by_job[job_id]:
+                episodes_by_job[job_id].append(episode)
+                episode_ids_by_job[job_id].add(episode.id)
+            if media_id is not None and job_id in (reasons or ""):
+                replaceable_job_ids.add(job_id)
 
         result = []
         for job in jobs:
@@ -235,6 +242,7 @@ class DownloadService:
                 "qbittorrent_task": job.qbittorrent_task,
                 "progress": job.progress,
                 "state": job.state,
+                "can_replace_source": job.state == "IMPORTED" and job.id in replaceable_job_ids,
                 "error": job.error,
                 "save_path": job.save_path,
                 "created_at": job.created_at,

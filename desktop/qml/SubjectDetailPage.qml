@@ -7,10 +7,14 @@ Page {
     id: root
     objectName: "subjectDetailPage"
     required property int subjectId
+    property int correctionEpisodeId: -1
+    property string correctionEpisodeDisplayNumber: ""
+    property string correctionDownloadJobId: ""
     signal back()
     signal playEpisode(int id, bool fromStart, var episodes, string title)
     property var downloadEpisode: null
     property var searchEpisode: null
+    property string replacementDownloadJobId: ""
     property bool showAutoSelectionDebug:
         !!(backend.settings.release_search || {}).debug_auto_selection_enabled
     property var collectionOptions: [
@@ -182,11 +186,13 @@ Page {
                     onToggleWatchedClicked: backend.markWatched(modelData.id, !modelData.watched)
                     onSearchClicked: {
                         root.searchEpisode = modelData
+                        root.replacementDownloadJobId = ""
                         candidateDialog.open()
                         backend.searchReleases(modelData.id)
                     }
                     onDebugClicked: {
                         root.searchEpisode = modelData
+                        root.replacementDownloadJobId = ""
                         candidateDialog.open()
                         backend.debugSearchReleases(modelData.id)
                     }
@@ -254,6 +260,13 @@ Page {
 
         contentItem: ColumnLayout {
             spacing: Metrics.space3
+            Label {
+                Layout.fillWidth: true
+                visible: root.replacementDownloadJobId.length > 0
+                text: "选择新片源后，旧文件会保留到新文件成功入库，再由系统自动删除。"
+                color: Theme.textSecondary
+                wrapMode: Text.Wrap
+            }
             Label {
                 Layout.fillWidth: true
                 text: backend.releaseSearch.id
@@ -343,11 +356,14 @@ Page {
                                     Layout.fillWidth: true
                                     Item { Layout.fillWidth: true }
                                     AppButton {
-                                        text: modelData.download_job_id ? "已加入下载" : "选择并下载"
+                                        text: modelData.download_job_id ? "已加入下载"
+                                            : (root.replacementDownloadJobId.length > 0 ? "选择为新片源" : "选择并下载")
                                         variant: "primary"
                                         enabled: modelData.downloadable && !modelData.download_job_id
                                             && !(backend.activities.releaseDownloading || false)
-                                        onClicked: backend.downloadReleaseCandidate(modelData.id)
+                                        onClicked: backend.downloadReleaseCandidate(
+                                            modelData.id, root.replacementDownloadJobId
+                                        )
                                     }
                                 }
                             }
@@ -360,6 +376,15 @@ Page {
         backend.loadSubject(subjectId)
         backend.loadCleanup(subjectId)
         backend.setDownloadPolling("subjectDetail", visible)
+        if (root.correctionEpisodeId > 0 && root.correctionDownloadJobId.length > 0) {
+            root.searchEpisode = {
+                id: root.correctionEpisodeId,
+                display_number: root.correctionEpisodeDisplayNumber
+            }
+            root.replacementDownloadJobId = root.correctionDownloadJobId
+            candidateDialog.open()
+            backend.searchReleases(root.correctionEpisodeId)
+        }
     }
     onVisibleChanged: backend.setDownloadPolling("subjectDetail", visible)
     Component.onDestruction: backend.setDownloadPolling("subjectDetail", false)

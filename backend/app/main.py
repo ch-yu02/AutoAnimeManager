@@ -119,6 +119,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await scheduler.stop()
+        await app.state.playback_session_service.stop()
         await download_service.stop()
 
 

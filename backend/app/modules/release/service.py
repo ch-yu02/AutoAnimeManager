@@ -9,6 +9,7 @@ from sqlalchemy import select
 from backend.app.config import ReleaseSearchConfig, get_settings
 from backend.app.database.models import (
     DownloadJob,
+    DownloadJobEpisode,
     Episode,
     EpisodeFile,
     MediaFile,
@@ -219,7 +220,11 @@ class ReleaseSearchService:
         return self.get_search(search_id)
 
     async def download_candidate(
-        self, candidate_id: str, *, automatic: bool = False
+        self,
+        candidate_id: str,
+        *,
+        automatic: bool = False,
+        replacement_job_id: str | None = None,
     ) -> dict[str, object]:
         with session_scope() as session:
             candidate = session.get(ReleaseCandidate, candidate_id)
@@ -234,11 +239,16 @@ class ReleaseSearchService:
             episode_id = candidate.episode_id
             magnet_uri = candidate.magnet_uri
             episode = session.get(Episode, episode_id)
-            replacement_ids = (
-                self._ani_replacement_media_ids(session, episode)
-                if automatic and episode is not None
-                else []
-            )
+            if replacement_job_id is not None:
+                replacement_ids = self._manual_replacement_media_ids(
+                    session, episode, replacement_job_id
+                )
+            else:
+                replacement_ids = (
+                    self._ani_replacement_media_ids(session, episode)
+                    if automatic and episode is not None
+                    else []
+                )
         if replacement_ids:
             download = await self.download_service.create(
                 episode_id,
@@ -253,6 +263,44 @@ class ReleaseSearchService:
                 candidate.selected_at = datetime.now(UTC)
                 candidate.download_job_id = str(download["id"])
         return {"candidate_id": candidate_id, "download": download}
+
+    @staticmethod
+    def _manual_replacement_media_ids(
+        session, episode: Episode | None, replacement_job_id: str
+    ) -> list[int]:
+        if episode is None:
+            raise ReleaseNotDownloadable("要更换片源的剧集不存在")
+        job = session.get(DownloadJob, replacement_job_id)
+        linked = session.scalar(
+            select(DownloadJobEpisode.id).where(
+                DownloadJobEpisode.job_id == replacement_job_id,
+                DownloadJobEpisode.episode_id == episode.id,
+            )
+        )
+        if job is None or linked is None or job.state != "IMPORTED":
+            raise ReleaseNotDownloadable("原下载任务不是该剧集已入库的片源")
+        current_media = list(session.execute(
+            select(MediaFile, EpisodeFile)
+            .join(EpisodeFile, EpisodeFile.media_file_id == MediaFile.id)
+            .where(
+                EpisodeFile.episode_id == episode.id,
+                MediaFile.exists.is_(True),
+                MediaFile.ignored.is_(False),
+            )
+        ))
+        media_ids = []
+        for media, link in current_media:
+            try:
+                reasons = json.loads(link.reasons or "[]")
+            except (json.JSONDecodeError, TypeError):
+                reasons = []
+            if any(replacement_job_id in str(reason) for reason in reasons):
+                media_ids.append(media.id)
+        if not media_ids:
+            raise ReleaseNotDownloadable("无法确认该下载任务当前对应的本地片源")
+        if len(media_ids) != len(current_media):
+            raise ReleaseNotDownloadable("该剧集有多个片源，请先在媒体库中保留一个")
+        return media_ids
 
     @staticmethod
     def _target(episode_id: int) -> dict[str, object]:

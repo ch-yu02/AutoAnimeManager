@@ -154,6 +154,21 @@ private slots:
         QTest::qWait(1650);
         QCOMPARE(server.requests.count(QStringLiteral("GET /api/downloads")), 1);
     }
+
+    void replacementDownloadForwardsOriginalJobId()
+    {
+        FakeHttpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        QmlBackend backend(server.baseUrl());
+
+        backend.downloadReleaseCandidate(
+            QStringLiteral("candidate-1"), QStringLiteral("wrong-job")
+        );
+
+        QTRY_VERIFY(server.requests.contains(QStringLiteral(
+            "POST /api/releases/candidates/candidate-1/download?replacement_job_id=wrong-job"
+        )));
+    }
 };
 
 } // namespace

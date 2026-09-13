@@ -8,8 +8,8 @@ ApplicationWindow {
     id: window
     width: 1360
     height: 820
-    minimumWidth: 900
-    minimumHeight: 600
+    minimumWidth: playerOpen ? 640 : 900
+    minimumHeight: playerOpen ? 360 : 600
     visible: true
     title: "AutoAnime"
     color: playerOpen ? Theme.screenBlack : Theme.canvas
@@ -37,6 +37,64 @@ ApplicationWindow {
     property bool playerOpen: stack.currentItem && stack.currentItem.objectName === "playerPage"
     property string currentRoot: "home"
     property var cachedRoots: ({})
+    property var prePlaybackWindowState: null
+    property bool playerWindowAutoAdjusted: false
+
+    function rememberWindowBeforePlayback() {
+        if (playerOpen || prePlaybackWindowState !== null) return
+        prePlaybackWindowState = {
+            x: window.x,
+            y: window.y,
+            width: window.width,
+            height: window.height,
+            visibility: window.visibility
+        }
+    }
+    function adjustPlayerWindowSize() {
+        if (playerWindowAutoAdjusted || !playerOpen || window.visibility !== Window.Windowed
+                || player.videoWidth <= 0 || player.videoHeight <= 0 || !window.screen)
+            return
+        const screen = window.screen
+        const target = player.suggestedWindowSize(
+            screen.desktopAvailableWidth,
+            screen.desktopAvailableHeight,
+            screen.devicePixelRatio
+        )
+        if (target.width <= 0 || target.height <= 0) return
+        playerWindowAutoAdjusted = true
+        window.width = target.width
+        window.height = target.height
+        window.x = screen.virtualX + Math.round((screen.width - target.width) / 2)
+        window.y = screen.virtualY + Math.round((screen.height - target.height) / 2)
+    }
+    function restoreWindowAfterPlayback() {
+        if (prePlaybackWindowState === null) return
+        const previous = prePlaybackWindowState
+        prePlaybackWindowState = null
+        if (previous.visibility === Window.Maximized) {
+            window.showMaximized()
+            return
+        }
+        if (previous.visibility !== Window.Windowed || !window.screen) return
+        const screen = window.screen
+        const restoredWidth = Math.min(
+            screen.desktopAvailableWidth, Math.max(900, previous.width)
+        )
+        const restoredHeight = Math.min(
+            screen.desktopAvailableHeight, Math.max(600, previous.height)
+        )
+        window.showNormal()
+        window.width = restoredWidth
+        window.height = restoredHeight
+        window.x = Math.max(
+            screen.virtualX,
+            Math.min(previous.x, screen.virtualX + screen.width - restoredWidth)
+        )
+        window.y = Math.max(
+            screen.virtualY,
+            Math.min(previous.y, screen.virtualY + screen.height - restoredHeight)
+        )
+    }
 
     function leavePlayer() {
         if (!playerOpen) return
@@ -71,7 +129,20 @@ ApplicationWindow {
     function openDownloads() { openRoot(downloadsComponent, "downloads") }
     function openQuarantine() { openRoot(quarantineComponent, "quarantine") }
     function openSettings() { openRoot(settingsComponent, "settings") }
+    function replaceDownloadedSource(job) {
+        const episodes = job.episodes || []
+        if (!job.subject || episodes.length !== 1) return
+        leavePlayer()
+        stack.push(detailComponent, {
+            subjectId: job.subject.id,
+            correctionEpisodeId: episodes[0].id,
+            correctionEpisodeDisplayNumber: episodes[0].display_number || "",
+            correctionDownloadJobId: job.id
+        })
+    }
     function openPlayer(episodeId, fromStart, episodes, title) {
+        rememberWindowBeforePlayback()
+        playerWindowAutoAdjusted = false
         stack.push(playerComponent, {
             requestedEpisodeId: episodeId,
             fromStart: fromStart,
@@ -86,6 +157,19 @@ ApplicationWindow {
     Shortcut { sequence: "Ctrl+4"; onActivated: window.openDownloads() }
     Shortcut { sequence: "Ctrl+5"; onActivated: window.openQuarantine() }
     Shortcut { sequence: "Ctrl+,"; onActivated: window.openSettings() }
+
+    onPlayerOpenChanged: {
+        if (!playerOpen) Qt.callLater(window.restoreWindowAfterPlayback)
+    }
+    onVisibilityChanged: {
+        if (playerOpen && window.visibility === Window.Windowed)
+            Qt.callLater(window.adjustPlayerWindowSize)
+    }
+
+    Connections {
+        target: player
+        function onVideoSizeChanged() { Qt.callLater(window.adjustPlayerWindowSize) }
+    }
 
     RowLayout {
         anchors.fill: parent
@@ -214,7 +298,13 @@ ApplicationWindow {
     Component { id: detailComponent; SubjectDetailPage { onBack: stack.pop(); onPlayEpisode: (id, fromStart, episodes, title) => window.openPlayer(id, fromStart, episodes, title) } }
     Component { id: playerComponent; PlayerPage { onBack: stack.pop() } }
     Component { id: libraryComponent; LibraryPage {} }
-    Component { id: downloadsComponent; DownloadsPage { onOpenSubject: id => window.openSubject(id) } }
+    Component {
+        id: downloadsComponent
+        DownloadsPage {
+            onOpenSubject: id => window.openSubject(id)
+            onReplaceSource: job => window.replaceDownloadedSource(job)
+        }
+    }
     Component { id: quarantineComponent; QuarantinePage { onOpenSubject: id => window.openSubject(id) } }
     Component { id: settingsComponent; SettingsPage {} }
 

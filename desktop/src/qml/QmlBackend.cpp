@@ -589,12 +589,21 @@ void QmlBackend::debugAutoSelect(const QString &searchId)
         }, QStringLiteral("releaseDebugSelecting"));
 }
 
-void QmlBackend::downloadReleaseCandidate(const QString &candidateId)
+void QmlBackend::downloadReleaseCandidate(
+    const QString &candidateId,
+    const QString &replacementJobId
+)
 {
     if (m_activityPending.value(QStringLiteral("releaseDownloading")) > 0) {
         return;
     }
-    send("POST", QStringLiteral("api/releases/candidates/%1/download").arg(candidateId), {},
+    QString path = QStringLiteral("api/releases/candidates/%1/download").arg(candidateId);
+    if (!replacementJobId.isEmpty()) {
+        QUrlQuery query;
+        query.addQueryItem(QStringLiteral("replacement_job_id"), replacementJobId);
+        path += QLatin1Char('?') + query.toString(QUrl::FullyEncoded);
+    }
+    send("POST", path, {},
         [this](const QVariant &) {
             setNotice(QStringLiteral("已加入下载"));
             const QString searchId = m_releaseSearch.value(QStringLiteral("id")).toString();

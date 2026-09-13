@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QVariantList>
+#include <QVariantMap>
 
 namespace autoanime {
 
@@ -22,8 +23,11 @@ class QmlPlayer final : public QObject {
     Q_PROPERTY(bool muted READ muted NOTIFY mutedChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
     Q_PROPERTY(QString error READ error NOTIFY errorChanged)
+    Q_PROPERTY(QString warning READ warning NOTIFY warningChanged)
     Q_PROPERTY(QString hwdec READ hwdec NOTIFY diagnosticsChanged)
     Q_PROPERTY(qint64 droppedFrames READ droppedFrames NOTIFY diagnosticsChanged)
+    Q_PROPERTY(int videoWidth READ videoWidth NOTIFY videoSizeChanged)
+    Q_PROPERTY(int videoHeight READ videoHeight NOTIFY videoSizeChanged)
     Q_PROPERTY(QVariantList audioTracks READ audioTracks NOTIFY tracksChanged)
     Q_PROPERTY(QVariantList subtitleTracks READ subtitleTracks NOTIFY tracksChanged)
 
@@ -42,8 +46,11 @@ public:
     bool muted() const noexcept { return m_muted; }
     bool loading() const noexcept { return m_loading; }
     QString error() const { return m_error; }
+    QString warning() const { return m_warning; }
     QString hwdec() const { return m_hwdec; }
     qint64 droppedFrames() const noexcept { return m_droppedFrames; }
+    int videoWidth() const noexcept { return m_videoWidth; }
+    int videoHeight() const noexcept { return m_videoHeight; }
     QVariantList audioTracks() const { return m_audioTracks; }
     QVariantList subtitleTracks() const { return m_subtitleTracks; }
 
@@ -58,6 +65,13 @@ public:
     Q_INVOKABLE void selectSubtitleTrack(qint64 id);
     Q_INVOKABLE void addSubtitle(const QUrl &url);
     Q_INVOKABLE void stop();
+    Q_INVOKABLE void dismissError();
+    Q_INVOKABLE void dismissWarning();
+    Q_INVOKABLE QVariantMap suggestedWindowSize(
+        int availableWidth,
+        int availableHeight,
+        double devicePixelRatio = 1.0
+    ) const;
 
 signals:
     void episodeIdChanged();
@@ -70,7 +84,9 @@ signals:
     void mutedChanged();
     void loadingChanged();
     void errorChanged();
+    void warningChanged();
     void diagnosticsChanged();
+    void videoSizeChanged();
     void tracksChanged();
     void playbackEnded(qint64 episodeId, qint64 nextEpisodeId);
     void playbackStopped(qint64 episodeId);
@@ -90,8 +106,11 @@ private:
     bool m_muted{false};
     bool m_loading{false};
     QString m_error;
+    QString m_warning;
     QString m_hwdec;
     qint64 m_droppedFrames{0};
+    int m_videoWidth{0};
+    int m_videoHeight{0};
     QVariantList m_audioTracks;
     QVariantList m_subtitleTracks;
 };

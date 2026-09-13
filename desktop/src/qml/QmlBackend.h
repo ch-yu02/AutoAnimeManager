@@ -90,7 +90,10 @@ public:
     Q_INVOKABLE void searchReleases(qint64 episodeId);
     Q_INVOKABLE void debugSearchReleases(qint64 episodeId);
     Q_INVOKABLE void debugAutoSelect(const QString &searchId);
-    Q_INVOKABLE void downloadReleaseCandidate(const QString &candidateId);
+    Q_INVOKABLE void downloadReleaseCandidate(
+        const QString &candidateId,
+        const QString &replacementJobId = QString{}
+    );
     Q_INVOKABLE void startLibraryScan();
     Q_INVOKABLE void rematchReview();
     Q_INVOKABLE void ignoreFile(qint64 fileId, bool ignored);

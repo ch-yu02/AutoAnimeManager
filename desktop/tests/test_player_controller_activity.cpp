@@ -14,6 +14,48 @@ class PlayerControllerActivityTest final : public QObject {
     Q_OBJECT
 
 private slots:
+    void progressFailureDoesNotBecomeBlockingPlaybackError()
+    {
+        MpvCore core;
+        BackendClient backend(QUrl(QStringLiteral("http://127.0.0.1:9/")));
+        PlayerController controller(&core, &backend);
+        QSignalSpy errorSpy(&controller, &PlayerController::playbackError);
+        QSignalSpy warningSpy(&controller, &PlayerController::playbackWarning);
+
+        controller.onBackendError(0, QStringLiteral("保存播放进度"), QStringLiteral("暂时不可用"));
+
+        QCOMPARE(errorSpy.count(), 0);
+        QCOMPARE(warningSpy.count(), 1);
+    }
+
+    void progressSavesAreCoalescedWhileARequestIsInFlight()
+    {
+        MpvCore core;
+        BackendClient backend(QUrl(QStringLiteral("http://127.0.0.1:9/")));
+        PlayerController controller(&core, &backend);
+        controller.m_sessionId = QStringLiteral("session-1");
+        controller.m_position = 10.0;
+        controller.m_duration = 100.0;
+
+        controller.queueProgressSave(false);
+        const quint64 activeRequestId = controller.m_activeProgressRequestId;
+        controller.m_position = 25.0;
+        controller.queueProgressSave(false);
+
+        QVERIFY(controller.m_progressSaveInFlight);
+        QVERIFY(activeRequestId != 0);
+        QCOMPARE(controller.m_activeProgressRequestId, activeRequestId);
+        QVERIFY(controller.m_progressSavePending);
+        QCOMPARE(controller.m_pendingProgressPosition, 25.0);
+        controller.m_position = 30.0;
+        controller.finishProgressSave(activeRequestId, QStringLiteral("session-1"));
+        QCOMPARE(controller.m_position, 30.0);
+        QVERIFY(controller.m_progressSaveInFlight);
+        QVERIFY(!controller.m_progressSavePending);
+        QVERIFY(controller.m_activeProgressRequestId != activeRequestId);
+        controller.resetSession();
+    }
+
     void playbackStateDrivesActivity()
     {
         MpvCore core;
